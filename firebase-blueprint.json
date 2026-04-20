@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Thông tin thành viên Hội Xây Dựng Sông Hàn",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "companyName": { "type": "string", "description": "Tên công ty" },
+        "representative": { "type": "string", "description": "Người đại diện" },
+        "phone": { "type": "string" },
+        "group": { "type": "integer", "enum": [1, 2, 3] },
+        "role": { "type": "string", "enum": ["admin", "member"] },
+        "totalScore": { "type": "number", "description": "Tổng điểm hiện tại" }
+      },
+      "required": ["uid", "email", "companyName", "group", "role"]
+    },
+    "KPIReport": {
+      "title": "KPI Report",
+      "description": "Báo cáo chỉ tiêu KPI của thành viên",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "week": { "type": "string", "description": "Tuần báo cáo (YYYY-WW)" },
+        "date": { "type": "string", "format": "date-time" },
+        "presence": { "type": "integer", "description": "Hiện diện (Max 20)" },
+        "info": { "type": "integer", "description": "Thông tin (Max 5)" },
+        "opportunity": { "type": "integer", "description": "Cơ hội KD (Max 20)" },
+        "guest": { "type": "integer", "description": "Khách mời (Max 10)" },
+        "meeting": { "type": "integer", "description": "Gặp mặt (Max 10)" },
+        "referral": { "type": "integer", "description": "DS cho đi (Max 20)" },
+        "charity": { "type": "integer", "description": "UH Quỹ heo (Max 15)" },
+        "penalty": { "type": "integer", "description": "Điểm trừ" },
+        "bonus": { "type": "integer", "description": "Điểm cộng" },
+        "total": { "type": "integer", "description": "Tổng điểm của bản báo cáo này" }
+      },
+      "required": ["userId", "week", "date", "total"]
+    },
+    "Meeting": {
+      "title": "Meeting",
+      "description": "Lịch họp định kỳ của Hội",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "time": { "type": "string", "description": "HH:mm" },
+        "location": { "type": "string" },
+        "type": { "type": "string", "enum": ["weekly", "monthly", "special"] },
+        "attendees": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["title", "date", "time", "location", "type", "attendees"]
+    },
+    "Guest": {
+      "title": "Guest",
+      "description": "Thông tin khách mời đăng ký tham gia",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "industry": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["attending", "not_attending"] },
+        "meetingId": { "type": "string" },
+        "invitedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "company", "industry", "phone", "status", "invitedBy"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Thông tin chi tiết thành viên"
+    },
+    "/reports/{reportId}": {
+      "schema": "KPIReport",
+      "description": "Các bản báo cáo KPI hàng tuần"
+    },
+    "/meetings/{meetingId}": {
+      "schema": "Meeting",
+      "description": "Lịch họp và danh sách tham dự"
+    },
+    "/guests/{guestId}": {
+      "schema": "Guest",
+      "description": "Danh sách khách mời"
+    }
+  }
+}

@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // HÀM KIỂM TRA HỖ TRỢ
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Chỉ Admin (với Email của anh Khoa) mới có quyền ghi/xóa mọi thứ
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "thienkhoatgk@gmail.com" ||
+         request.auth.token.email == "queenkily@gmail.com");
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Kiểm tra định dạng báo cáo khớp với App Mobile
+    function isValidReport(data) {
+      return data.keys().hasAll(['userId', 'week', 'total']) &&
+             data.userId is string &&
+             // Khớp với định dạng W15-2026 trong code của anh
+             data.week.matches("^W\\d{1,2}-\\d{4}$");
+    }
+
+    // ===============================================================
+    // CÁC QUY TẮC TRUY CẬP (RULES)
+    // ===============================================================
+
+    // Mặc định: Mọi người đã đăng nhập đều được đọc, nhưng chỉ Admin mới được xóa
+    match /{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Quy tắc cho thành viên
+    match /users/{userId} {
+      // Hội viên tự tạo profile của mình khi đăng ký lần đầu
+      allow create: if isOwner(userId);
+      // Chỉ Admin hoặc chính chủ mới được sửa thông tin cá nhân
+      allow update: if isAdmin() || isOwner(userId);
+    }
+
+    // Quy tắc cho báo cáo KPI
+    match /reports/{reportId} {
+      // Cho phép hội viên gửi báo cáo của chính họ
+      allow create: if isAuthenticated() && 
+                   request.resource.data.userId == request.auth.uid && 
+                   isValidReport(request.resource.data);
+      
+      // Chỉ Admin mới được sửa hoặc xóa báo cáo đã gửi để đảm bảo minh bạch
+      allow update, delete: if isAdmin();
+    }
+
+    // Quy tắc cho lịch họp và khách mời
+    match /meetings/{meetingId} {
+      allow write: if isAdmin();
+    }
+
+    match /guests/{guestId} {
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin() || request.auth.uid == resource.data.invitedBy;
+    }
+  }
+}
