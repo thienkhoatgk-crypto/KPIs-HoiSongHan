@@ -81,7 +81,7 @@ import {
   Eye,
   HelpCircle
 } from 'lucide-react';
-import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification } from './types';
+import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, MonthlySummary } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfWeek, getWeek, startOfMonth, endOfMonth, addDays, isTuesday, lastDayOfMonth, isAfter, startOfDay, isSameDay } from 'date-fns';
 import { cn } from './lib/utils';
@@ -142,7 +142,7 @@ const getReportingStatus = (date: Date) => {
 const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]) => {
   if (userReports.length === 0) return { total: 0, bonusNextMonth: 0, cashBonus: 0 };
 
-  // Sort reports by date to identify the 5th week
+  // Sort reports by date to identify weeks correctly
   const sortedReports = [...userReports].sort((a, b) => {
     const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
     const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
@@ -150,9 +150,10 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
   });
 
   const isFiveWeekMonth = sortedReports.length >= 5;
-  const maxScore = isFiveWeekMonth ? 105 : 100;
 
-  let monthlyPresence = 0;
+  let baseScore = 0;
+  let bonusPoints5thWeek = 0;
+  
   let monthlyInfoCount = 0;
   let monthlyFbShares = 0;
   let monthlyOppCount = 0;
@@ -167,18 +168,20 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
   let monthlyPenalty = 0;
   let monthlyBonusNextMonth = 0;
   let monthlyCashBonus = 0;
+  let monthlyPresence4Weeks = 0;
 
-  // Track internal Giver-Receiver pairs for cumulative logic
+  // Track internal Giver-Receiver pairs
   const internalPairs = new Map<string, { count: number, totalAmount: number, totalPiggy: number }>();
 
   sortedReports.forEach((report, index) => {
-    // Presence is always counted
-    if (report.presenceStatus === 'present') monthlyPresence += 5;
-    if (report.presenceStatus === 'unexcused') monthlyPresence -= 5;
-    if (report.presenceStatus === 'late') monthlyPresence -= 2;
+    const isFifthWeek = index >= 4;
 
-    // Other indicators only for the first 4 weeks
-    if (index < 4) {
+    if (!isFifthWeek) {
+      // First 4 weeks logic
+      if (report.presenceStatus === 'present') monthlyPresence4Weeks += 5;
+      if (report.presenceStatus === 'unexcused') monthlyPresence4Weeks -= 5;
+      if (report.presenceStatus === 'late') monthlyPresence4Weeks -= 2;
+
       monthlyInfoCount += report.infoCount || 0;
       monthlyFbShares += report.fbShares || 0;
       monthlyOppCount += report.oppCount || 0;
@@ -189,121 +192,71 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
       monthlyJointTrip += report.jointTrip || 0;
       monthlyOfficeMeeting += report.officeMeeting || 0;
 
-      // Weekly business score calculation
+      // Business logic (simplified for reference, keeping existing depth)
       let weeklyBusiness = 0;
-      
-      // GIVER LOGIC
       if (report.giverAmount > 0 && report.giverRecipientId) {
-        // Find matching piggy contribution from the recipient
         const recipientReports = allReports.filter(r => r.userId === report.giverRecipientId);
-        const matchingPiggy = recipientReports.find(r => 
-          r.receiverGiverId === report.userId && 
-          r.week === report.week &&
-          r.piggyAmount > 0
-        );
-
+        const matchingPiggy = recipientReports.find(r => r.receiverGiverId === report.userId && r.week === report.week && r.piggyAmount > 0);
         if (matchingPiggy) {
           if (!report.isGiverExternal) {
-            // Internal Giver
-            const pairKey = report.giverRecipientId;
-            const pairData = internalPairs.get(pairKey) || { count: 0, totalAmount: 0, totalPiggy: 0 };
-            pairData.count += 1;
-            pairData.totalAmount += report.giverAmount;
-            pairData.totalPiggy += matchingPiggy.piggyAmount;
-            internalPairs.set(pairKey, pairData);
-
-            if (pairData.count === 1) {
-              if (report.giverAmount < 50000000) weeklyBusiness += 5;
-              else weeklyBusiness += 10;
-            } else if (pairData.count === 2) {
-              if (pairData.totalAmount >= 50000000) weeklyBusiness += 5;
-            } else if (pairData.count === 3) {
-              if (pairData.totalPiggy >= 1000000) weeklyBusiness += 10;
-            }
+            const pairData = internalPairs.get(report.giverRecipientId) || { count: 0, totalAmount: 0, totalPiggy: 0 };
+            pairData.count += 1; pairData.totalAmount += report.giverAmount; pairData.totalPiggy += matchingPiggy.piggyAmount;
+            internalPairs.set(report.giverRecipientId, pairData);
+            if (pairData.count === 1) weeklyBusiness += report.giverAmount < 50000000 ? 5 : 10;
+            else if (pairData.count === 2 && pairData.totalAmount >= 50000000) weeklyBusiness += 5;
+            else if (pairData.count === 3 && pairData.totalPiggy >= 1000000) weeklyBusiness += 10;
           } else {
-            // External Giver
-            if (report.giverAmount >= 100000000 && report.giverAmount < 300000000) {
-              if (matchingPiggy.piggyAmount >= 1000000) weeklyBusiness += 10;
-            } else if (report.giverAmount >= 300000000 && report.giverAmount < 600000000) {
-              if (matchingPiggy.piggyAmount >= 1500000) weeklyBusiness += 15;
-            } else if (report.giverAmount >= 600000000 && report.giverAmount < 1000000000) {
-              if (matchingPiggy.piggyAmount >= 2000000) {
-                weeklyBusiness += 15;
-                monthlyBonusNextMonth += 5;
-              }
-            } else if (report.giverAmount >= 1000000000) {
+            if (report.giverAmount >= 1000000000) {
               if (matchingPiggy.piggyAmount >= 5000000) {
-                weeklyBusiness += 15;
-                monthlyCashBonus += 1000000;
-                if (report.giverAmount >= 5000000000) monthlyBonusNextMonth += 30; // 5pts * 6 months
-                else if (report.giverAmount >= 2000000000) monthlyBonusNextMonth += 10; // 5pts * 2 months
-                else monthlyBonusNextMonth += 5; // 5pts * 1 month
+                weeklyBusiness += 15; monthlyCashBonus += 1000000;
+                monthlyBonusNextMonth += (report.giverAmount >= 5000000000 ? 30 : (report.giverAmount >= 2000000000 ? 10 : 5));
               }
-            }
+            } else if (report.giverAmount >= 600000000) { if (matchingPiggy.piggyAmount >= 2000000) { weeklyBusiness += 15; monthlyBonusNextMonth += 5; } }
+            else if (report.giverAmount >= 300000000) { if (matchingPiggy.piggyAmount >= 1500000) weeklyBusiness += 15; }
+            else if (report.giverAmount >= 100000000) { if (matchingPiggy.piggyAmount >= 1000000) weeklyBusiness += 10; }
           }
         }
       }
-
-      // RECEIVER LOGIC (Piggy Bank)
       if (report.piggyAmount > 0 && report.receiverGiverId) {
-        // Receiver only gets points if they paid the required amount
         if (!report.isPiggyExternal) {
-          // Internal Piggy
-          const giverReports = allReports.filter(r => r.userId === report.receiverGiverId);
-          const matchingGiver = giverReports.find(r => 
-            r.giverRecipientId === report.userId && 
-            r.week === report.week
-          );
-
+          const matchingGiver = allReports.find(r => r.userId === report.receiverGiverId && r.giverRecipientId === report.userId && r.week === report.week);
           if (matchingGiver) {
             const receiverCount = sortedReports.filter((r, i) => i <= index && r.piggyAmount > 0 && r.receiverGiverId === report.receiverGiverId).length;
-            
             if (receiverCount === 1 && report.piggyAmount >= 300000) weeklyBusiness += 5;
             else if (receiverCount === 3 && report.piggyAmount >= 500000) {
-              const totalPiggySoFar = sortedReports.filter((r, i) => i <= index && r.receiverGiverId === report.receiverGiverId).reduce((sum, r) => sum + r.piggyAmount, 0);
-              if (totalPiggySoFar >= 1000000) weeklyBusiness += 10;
+              const totalPiggy = sortedReports.filter((r, i) => i <= index && r.receiverGiverId === report.receiverGiverId).reduce((sum, r) => sum + r.piggyAmount, 0);
+              if (totalPiggy >= 1000000) weeklyBusiness += 10;
             }
           }
         } else {
-          // External Piggy
-          if (report.piggyAmount >= 1000000 && report.piggyAmount < 1500000) weeklyBusiness += 5;
-          else if (report.piggyAmount >= 1500000) weeklyBusiness += 10;
+          weeklyBusiness += report.piggyAmount >= 1500000 ? 10 : (report.piggyAmount >= 1000000 ? 5 : 0);
         }
       }
-
       monthlyBusinessScore += weeklyBusiness;
+      monthlyBonus += report.bonusPoints || 0;
+      monthlyPenalty += report.penaltyPoints || 0;
+    } else {
+      // 5th Week logic: ONLY presence points
+      if (report.presenceStatus === 'present') bonusPoints5thWeek = 5;
     }
-    
-    monthlyBonus += report.bonusPoints || 0;
-    monthlyPenalty += report.penaltyPoints || 0;
   });
 
-  // Apply Monthly Caps
-  let total = 0;
-  
-  // Presence: Max 20 (4 weeks) or 25 (5 weeks)
-  total += Math.min(isFiveWeekMonth ? 25 : 20, monthlyPresence); 
+  // Calculate Base Score (Capped at 100)
+  baseScore += Math.min(20, monthlyPresence4Weeks);
+  if (monthlyInfoCount >= 3 || monthlyFbShares >= 4) baseScore += 5;
+  baseScore += Math.min(20, monthlyOppCount * 4);
+  baseScore += Math.min(10, (monthlyTargetedGuests * 10) + (monthlyNonTargetedGuests * 5));
+  baseScore += Math.min(10, (monthlyNormalMeetings * 1) + (monthlyJointHosting * 4) + (monthlyJointTrip * 4) + (monthlyOfficeMeeting * 2));
+  baseScore += Math.min(35, monthlyBusinessScore);
+  baseScore += monthlyBonus;
+  baseScore -= monthlyPenalty;
 
-  // Info: Max 5
-  if (monthlyInfoCount >= 3 || monthlyFbShares >= 4) total += 5;
-
-  // Opportunities: Max 20
-  total += Math.min(20, monthlyOppCount * 4);
-
-  // Guests: Max 10
-  total += Math.min(10, (monthlyTargetedGuests * 10) + (monthlyNonTargetedGuests * 5));
-
-  // Meetings: Max 10
-  total += Math.min(10, (monthlyNormalMeetings * 1) + (monthlyJointHosting * 4) + (monthlyJointTrip * 4) + (monthlyOfficeMeeting * 2));
-
-  // Business & Charity: Max 35
-  total += Math.min(35, monthlyBusinessScore);
-  
-  total += monthlyBonus;
-  total -= monthlyPenalty;
+  // Task 9: Total points of a month = 100 max + 5 bonus for 5th week
+  const finalBaseScore = Math.min(100, baseScore);
+  const total = finalBaseScore + bonusPoints5thWeek;
 
   return {
-    total: Math.min(maxScore, total),
+    total: total,
     bonusNextMonth: monthlyBonusNextMonth,
     cashBonus: monthlyCashBonus
   };
@@ -574,79 +527,53 @@ function KPIInput({ userId, isAdmin, onComplete, existingReport, reports, users 
       const index = sorted.findIndex(r => r.id === existingReport.id);
       isFifthWeek = index >= 4;
     } else {
-      isFifthWeek = userReports.length >= 4;
+      isFifthWeek = userReports.length >= 4; // userReports has previous 4, so this is 5th
     }
 
     let score = 0;
     
-    // Presence: 4 weeks/month = 20 points. Weekly equivalent is 5 points.
+    // Presence: Weekly equivalent is 5 points.
     // Penalty: unexcused -5, late -2, excused 0.
     if (formData.presenceStatus === 'present') score += 5;
     if (formData.presenceStatus === 'unexcused') score -= 5;
     if (formData.presenceStatus === 'late') score -= 2;
 
-    // If it's the 5th week, only presence points are counted
+    // If it's the 5th week, only presence points are counted (as bonus)
     if (isFifthWeek) {
-      return score;
+      return Math.max(0, score); // Bonus can't be negative for the 5th week display
     }
 
-    // Info: 3 info = 5pts OR 4 FB shares = 5pts. Max 5.
+    // Indicators (First 4 weeks only)
+    // ... logic same as calculateMonthlyScore ...
+    let indicatorsScore = 0;
+    
     let infoScore = 0;
     if (formData.infoCount >= 3) infoScore = 5;
     if (formData.fbShares >= 4) infoScore = 5;
-    score += Math.min(5, infoScore);
+    indicatorsScore += Math.min(5, infoScore);
+    indicatorsScore += Math.min(20, formData.oppCount * 4);
+    indicatorsScore += Math.min(10, (formData.targetedGuests * 10) + (formData.nonTargetedGuests * 5));
+    indicatorsScore += Math.min(10, (formData.normalMeetings * 1) + (formData.jointHosting * 4) + (formData.jointTrip * 4) + (formData.officeMeeting * 2));
 
-    // Opportunities: each = 4pts. Max 20.
-    score += Math.min(20, formData.oppCount * 4);
-
-    // Guests: Targeted = 10, Non-targeted = 5. Max 10.
-    let guestScore = (formData.targetedGuests * 10) + (formData.nonTargetedGuests * 5);
-    score += Math.min(10, guestScore);
-
-    // Meetings: each = 1, hosting = 4, trip = 4, office = 2. Max 10.
-    let meetingScore = (formData.normalMeetings * 1) + (formData.jointHosting * 4) + (formData.jointTrip * 4) + (formData.officeMeeting * 2);
-    score += Math.min(10, meetingScore);
-
-    // Business & Charity
     let businessScore = 0;
     if (formData.giverAmount > 0) {
-      if (!formData.isGiverExternal) {
-        if (formData.giverAmount < 50000000) businessScore += 5;
-        else businessScore += 10;
-      } else {
-        if (formData.giverAmount < 300000000) businessScore += 10;
-        else businessScore += 15;
-      }
+      if (!formData.isGiverExternal) businessScore += formData.giverAmount < 50000000 ? 5 : 10;
+      else businessScore += formData.giverAmount < 300000000 ? 10 : 15;
     }
-
     if (formData.receiverAmount > 0) {
-      if (!formData.isReceiverExternal) {
-        if (formData.receiverAmount >= 500000) businessScore += 10;
-        else if (formData.receiverAmount >= 300000) businessScore += 5;
-      } else {
-        if (formData.receiverAmount >= 2000000) businessScore += 20;
-        else if (formData.receiverAmount >= 1500000) businessScore += 15;
-        else if (formData.receiverAmount >= 1000000) businessScore += 10;
-      }
+      if (!formData.isReceiverExternal) businessScore += formData.receiverAmount >= 500000 ? 10 : (formData.receiverAmount >= 300000 ? 5 : 0);
+      else businessScore += formData.receiverAmount >= 2000000 ? 20 : (formData.receiverAmount >= 1500000 ? 15 : 10);
     }
-
     if (formData.piggyAmount > 0) {
-      if (!formData.isPiggyExternal) {
-        if (formData.piggyAmount < 500000) businessScore += 5;
-        else businessScore += 10;
-      } else {
-        if (formData.piggyAmount < 1500000) businessScore += 10;
-        else if (formData.piggyAmount < 2000000) businessScore += 15;
-        else businessScore += 20;
-      }
+      if (!formData.isPiggyExternal) businessScore += formData.piggyAmount < 500000 ? 5 : 10;
+      else businessScore += formData.piggyAmount >= 2000000 ? 20 : (formData.piggyAmount >= 1500000 ? 15 : 10);
     }
-    score += Math.min(35, businessScore);
+    indicatorsScore += Math.min(35, businessScore);
 
-    // Bonus & Penalty
-    score += formData.bonusPoints;
-    score -= formData.penaltyPoints;
-
-    return score;
+    // Final weekly score calculation for the report itself
+    // However, the monthly score is what matters for the 100 limit.
+    // For the individual report, we show the raw contribution.
+    return score + indicatorsScore + formData.bonusPoints - formData.penaltyPoints;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1298,10 +1225,21 @@ function KPIInput({ userId, isAdmin, onComplete, existingReport, reports, users 
   );
 }
 
-function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEditReport }: { users: UserProfile[], reports: KPIReport[], meetings: Meeting[], guests: Guest[], isAdmin: boolean, onReset: () => void, onEditReport: (r: KPIReport) => void }) {
+function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEditReport, monthlySummaries }: { 
+  users: UserProfile[], 
+  reports: KPIReport[], 
+  meetings: Meeting[], 
+  guests: Guest[], 
+  isAdmin: boolean, 
+  onReset: () => void, 
+  onEditReport: (r: KPIReport) => void,
+  monthlySummaries: MonthlySummary[]
+}) {
   const [activeGroup, setActiveGroup] = useState<number | 'all'>('all');
   const [viewMode, setViewMode] = useState<'leaderboard' | 'summary' | 'members' | 'dashboard' | 'reports' | 'meetings' | 'guests' | 'memberDetail' | 'my-reports'>('leaderboard');
+  const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [resetLoading, setResetLoading] = useState(false);
+  // ... rest of state stays the same ...
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [reportFilterStatus, setReportFilterStatus] = useState<string>('all');
   const [reportFilterUser, setReportFilterUser] = useState<string>('all');
@@ -1312,6 +1250,52 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
 
+  const isCurrentMonth = selectedMonth === format(new Date(), 'yyyy-MM');
+
+  const handleCloseMonth = async () => {
+    if (!window.confirm("BẠN CÓ CHẮC CHẮN MUỐN CHỐT SỐ VÀ LƯU TRỮ THÁNG HIỆN TẠI?\nDữ liệu này sẽ được lưu vào lịch sử và bảng xếp hạng sẽ được reset cho tháng mới.")) return;
+    setResetLoading(true);
+    try {
+      const batch = writeBatch(db);
+      const monthPrefix = format(new Date(), 'yyyy-MM');
+      
+      // Calculate final scores for each user
+      for (const user of users) {
+        const userReports = reports.filter(r => r.userId === user.uid);
+        const scoreData = calculateMonthlyScore(userReports, reports);
+        
+        const summaryRef = doc(collection(db, 'monthly_summaries'));
+        batch.set(summaryRef, {
+          monthKey: monthPrefix,
+          userId: user.uid,
+          representative: user.representative,
+          companyName: user.companyName,
+          group: user.group,
+          totalScore: scoreData.total,
+          bonusNextMonth: scoreData.bonusNextMonth,
+          cashBonus: scoreData.cashBonus,
+          reportCount: userReports.length,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      // Move current reports to archive (optional, or just delete if archiving isn't needed)
+      // For now, let's just delete to reset, as they are saved in summary
+      const snap = await getDocs(collection(db, 'reports'));
+      snap.docs.forEach(d => batch.delete(d.ref));
+      
+      await batch.commit();
+      onReset();
+      alert("Chốt tháng thành công!");
+    } catch (err) {
+      console.error("Close month error:", err);
+      alert("Có lỗi xảy ra khi chốt tháng.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  // ... (previous helper functions like renderEvidenceLinks, renderParticipants) ...
   const renderEvidenceLinks = (links: string[] | string | undefined, label: string) => {
     if (!links) return null;
     const linkArray = Array.isArray(links) ? links : [links];
@@ -1371,6 +1355,44 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
       </div>
     );
   };
+  // ... end helpers ...
+
+  const userScores = isCurrentMonth 
+    ? users.map(user => {
+        const userReports = reports.filter(r => r.userId === user.uid);
+        const scoreData = calculateMonthlyScore(userReports, reports);
+        return { 
+          uid: user.uid,
+          representative: user.representative,
+          companyName: user.companyName,
+          group: user.group,
+          totalScore: scoreData.total, 
+          bonusNextMonth: scoreData.bonusNextMonth, 
+          cashBonus: scoreData.cashBonus 
+        };
+      })
+    : monthlySummaries.filter(s => s.monthKey === selectedMonth).map(s => ({
+        uid: s.userId,
+        representative: s.representative,
+        companyName: s.companyName,
+        group: s.group,
+        totalScore: s.totalScore,
+        bonusNextMonth: s.bonusNextMonth,
+        cashBonus: s.cashBonus
+      }));
+
+  const filteredUsers = activeGroup === 'all' 
+    ? userScores 
+    : userScores.filter(u => u.group === activeGroup);
+
+  const sortedUsers = [...filteredUsers].sort((a, b) => b.totalScore - a.totalScore);
+  
+  // Available months logic
+  const availableMonths = [
+    format(new Date(), 'yyyy-MM'),
+    ...Array.from(new Set(monthlySummaries.map(s => s.monthKey))).sort().reverse()
+  ].filter((value, index, self) => self.indexOf(value) === index);
+
 
   const [guestForm, setGuestForm] = useState({
     name: '',
@@ -1661,20 +1683,6 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
     XLSX.writeFile(workbook, `KPI_ChiTiet_${groupNum === 'all' ? 'ToanHoi' : 'Nhom' + groupNum}_${format(new Date(), 'yyyyMMdd')}.xlsx`);
   };
 
-  // Calculate scores from reports
-  // Calculate scores from reports
-  const userScores = users.map(user => {
-    const userReports = reports.filter(r => r.userId === user.uid);
-    const scoreData = calculateMonthlyScore(userReports, reports);
-    return { ...user, totalScore: scoreData.total, bonusNextMonth: scoreData.bonusNextMonth, cashBonus: scoreData.cashBonus };
-  });
-
-  const filteredUsers = activeGroup === 'all' 
-    ? userScores 
-    : userScores.filter(u => u.group === activeGroup);
-
-  const sortedUsers = [...filteredUsers].sort((a, b) => b.totalScore - a.totalScore);
-
   const criticalUsers = userScores.filter(u => u.totalScore < 35 && u.group !== 0);
   const warningUsers = userScores.filter(u => u.totalScore >= 35 && u.totalScore < 45 && u.group !== 0);
 
@@ -1881,12 +1889,12 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
               Chi tiết {activeGroup === 'all' ? 'Toàn hội' : 'Nhóm ' + activeGroup}
             </button>
             <button 
-              onClick={handleReset}
+              onClick={handleCloseMonth}
               disabled={resetLoading}
               className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
             >
               <RefreshCcw size={16} className={resetLoading ? "animate-spin" : ""} />
-              Reset Tháng Mới
+              Chốt Tháng
             </button>
           </div>
         )}
@@ -1894,28 +1902,43 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
 
       {viewMode === 'leaderboard' ? (
         <>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            <button 
-              onClick={() => setActiveGroup('all')}
-              className={cn(
-                "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all",
-                activeGroup === 'all' ? "bg-gray-900 text-white" : "bg-white text-gray-500 border border-gray-100"
-              )}
-            >
-              Tất cả
-            </button>
-            {[0, 1, 2, 3].map(g => (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
               <button 
-                key={g}
-                onClick={() => setActiveGroup(g)}
+                onClick={() => setActiveGroup('all')}
                 className={cn(
                   "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all",
-                  activeGroup === g ? "bg-blue-600 text-white" : "bg-white text-gray-500 border border-gray-100"
+                  activeGroup === 'all' ? "bg-gray-900 text-white" : "bg-white text-gray-500 border border-gray-100"
                 )}
               >
-                {g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`}
+                Tất cả
               </button>
-            ))}
+              {[0, 1, 2, 3].map(g => (
+                <button 
+                  key={g}
+                  onClick={() => setActiveGroup(g)}
+                  className={cn(
+                    "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all",
+                    activeGroup === g ? "bg-blue-600 text-white" : "bg-white text-gray-500 border border-gray-100"
+                  )}
+                >
+                  {g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold text-gray-400 uppercase">Tháng báo cáo:</label>
+              <select 
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-white border border-gray-100 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>{m === format(new Date(), 'yyyy-MM') ? `Tháng hiện tại (${m})` : `Tháng ${m}`}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -3662,8 +3685,10 @@ export default function App() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [editingReport, setEditingReport] = useState<KPIReport | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummary[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [registrationData, setRegistrationData] = useState({
     companyName: '',
@@ -3721,6 +3746,12 @@ export default function App() {
             setGuests(snap.docs.map(d => ({ id: d.id, ...d.data() } as Guest)));
           }, (error) => {
             handleFirestoreError(error, OperationType.GET, 'guests');
+          });
+
+          onSnapshot(collection(db, 'monthly_summaries'), (snap) => {
+            setMonthlySummaries(snap.docs.map(d => ({ id: d.id, ...d.data() } as MonthlySummary)));
+          }, (error) => {
+            handleFirestoreError(error, OperationType.GET, 'monthly_summaries');
           });
 
         } catch (err) {
@@ -3844,6 +3875,13 @@ export default function App() {
           </button>
           
           <p className="mt-8 text-xs text-gray-400 font-medium italic">Hệ thống quản lý KPI nội bộ</p>
+          
+          <button 
+            onClick={() => setShowPrivacy(true)}
+            className="mt-4 text-[10px] text-gray-400 hover:text-blue-600 transition-colors underline"
+          >
+            Chính sách bảo mật
+          </button>
         </motion.div>
       </div>
     );
@@ -3911,7 +3949,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-12">
       <Header 
         user={profile} 
         onLogout={() => signOut(auth)} 
@@ -3960,7 +3998,10 @@ export default function App() {
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Điểm của bạn</p>
                   <p className="text-4xl font-black text-gray-900">
-                    {reports.filter(r => r.userId === user.uid).reduce((sum, r) => sum + r.total, 0)}
+                    {calculateMonthlyScore(reports.filter(r => {
+                      const d = r.date?.toDate ? r.date.toDate() : new Date(r.date);
+                      return r.userId === user.uid && format(d, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
+                    }), reports).total}
                   </p>
                 </div>
               </div>
@@ -4126,8 +4167,10 @@ export default function App() {
               meetings={meetings}
               guests={guests}
               isAdmin={isAdmin}
+              monthlySummaries={monthlySummaries}
               onReset={() => {
-                alert("Đã reset dữ liệu thành công!");
+                // This state reset might be handled by Firestore listeners, but we can clear local state for immediate feedback
+                setReports([]);
               }} 
               onEditReport={(r) => {
                 setEditingReport(r);
@@ -4137,6 +4180,26 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 border-t border-gray-100 mt-12 mb-8">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-xs text-gray-400 font-medium">© 2026 Hội Xây Dựng Sông Hàn. Bảo lưu mọi quyền.</p>
+          <div className="flex items-center gap-6">
+            <button 
+              onClick={() => setShowPrivacy(true)}
+              className="text-xs text-gray-500 hover:text-blue-600 transition-colors font-bold"
+            >
+              Chính sách bảo mật
+            </button>
+            <a 
+              href="https://kpissonghan.online" 
+              className="text-xs text-gray-500 hover:text-blue-600 transition-colors flex items-center gap-1 font-bold"
+            >
+              Trang chủ <ExternalLink size={12} />
+            </a>
+          </div>
+        </div>
+      </footer>
 
       {/* Report Modal */}
       <AnimatePresence>
@@ -4187,7 +4250,86 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Notifications Modal */}
+      {/* Privacy Modal */}
+      <AnimatePresence>
+        {showPrivacy && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gray-900 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                    <FileText size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-gray-900">Chính sách bảo mật</h2>
+                    <p className="text-xs text-gray-500 font-bold">Cập nhật lần cuối: 22/04/2026</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowPrivacy(false)}
+                  className="p-2 hover:bg-white/50 rounded-xl transition-colors text-gray-900"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="p-8 overflow-y-auto custom-scrollbar space-y-6 text-sm text-gray-600 leading-relaxed">
+                <section>
+                  <h3 className="text-lg font-black text-gray-900 mb-2">1. Thu thập thông tin</h3>
+                  <p>Chúng tôi thu thập các thông tin sau khi bạn đăng ký và sử dụng hệ thống:</p>
+                  <ul className="list-disc ml-5 mt-2 space-y-1">
+                    <li>Họ tên và địa chỉ email từ tài khoản Google của bạn.</li>
+                    <li>Tên công ty, số điện thoại người đại diện.</li>
+                    <li>Dữ liệu báo cáo KPI, hình ảnh minh chứng và các giao dịch kinh doanh trong nội bộ Hội.</li>
+                  </ul>
+                </section>
+
+                <section>
+                  <h3 className="text-lg font-black text-gray-900 mb-2">2. Sử dụng thông tin</h3>
+                  <p>Thông tin thu thập được sử dụng cho các mục đích:</p>
+                  <ul className="list-disc ml-5 mt-2 space-y-1">
+                    <li>Xác thực danh tính hội viên tham gia hệ thống.</li>
+                    <li>Tính toán và xếp hạng KPI hàng tuần, hàng tháng.</li>
+                    <li>Hiển thị bảng xếp hạng công khai trong nội bộ Hội Xây Dựng Sông Hàn.</li>
+                    <li>Gửi các thông báo liên quan đến hoạt động của Hội.</li>
+                  </ul>
+                </section>
+
+                <section>
+                  <h3 className="text-lg font-black text-gray-900 mb-2">3. Bảo vệ dữ liệu</h3>
+                  <p>Hệ thống của chúng tôi được xây dựng trên nền tảng Firebase của Google, đảm bảo các tiêu chuẩn bảo mật hàng đầu. Dữ liệu của bạn được mã hóa trong quá trình truyền tải và lưu trữ.</p>
+                </section>
+
+                <section>
+                  <h3 className="text-lg font-black text-gray-900 mb-2">4. Chia sẻ dữ liệu</h3>
+                  <p>Chúng tôi không chia sẻ, bán hoặc trao đổi thông tin cá nhân của bạn cho bất kỳ bên thứ ba nào ngoài mục đích nội bộ của Hội Xây Dựng Sông Hàn.</p>
+                </section>
+
+                <section>
+                  <h3 className="text-lg font-black text-gray-900 mb-2">5. Liên hệ</h3>
+                  <p>Nếu bạn có bất kỳ câu hỏi nào về chính sách này, vui lòng liên hệ Ban Quản trị Hội qua email: <span className="font-bold text-gray-900">thienkhoatgk@gmail.com</span></p>
+                </section>
+                
+                <div className="pt-4 border-t border-gray-100 flex justify-center">
+                  <button 
+                    onClick={() => setShowPrivacy(false)}
+                    className="px-8 py-3 bg-gray-900 text-white font-bold rounded-2xl hover:bg-gray-800 transition-all shadow-lg"
+                  >
+                    Đã hiểu
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Guide Modal */}
       <AnimatePresence>
         {showGuide && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -4312,7 +4454,9 @@ export default function App() {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
+      <AnimatePresence>
         {showNotifications && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 

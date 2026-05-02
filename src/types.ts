@@ -112,6 +112,20 @@ export interface AppNotification {
   date?: any;
 }
 
+export interface MonthlySummary {
+  id?: string;
+  monthKey: string; // YYYY-MM
+  userId: string;
+  representative: string;
+  companyName: string;
+  group: number;
+  totalScore: number;
+  bonusNextMonth: number;
+  cashBonus: number;
+  reportCount: number;
+  createdAt: any;
+}
+
 export const KPI_LEVELS = {
   GIVER: [
     { label: 'Nội bộ < 10tr', points: 5 },
