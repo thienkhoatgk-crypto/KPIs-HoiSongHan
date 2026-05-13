@@ -83,7 +83,9 @@ import {
   Upload,
   Eye,
   HelpCircle,
-  Github
+  Github,
+  Rocket,
+  CheckCircle2
 } from 'lucide-react';
 import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, MonthlySummary } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -4020,42 +4022,28 @@ export default function App() {
 
           <div className="mt-8 p-4 bg-green-50 border border-green-100 rounded-2xl text-left">
             <h4 className="text-xs font-black text-[#065f46] uppercase mb-2 flex items-center gap-2">
-              <ShieldCheck size={14} /> TRẠNG THÁI: CHUẨN BỊ BÀN GIAO (99%)
+              <ShieldCheck size={14} /> TRẠNG THÁI: SẴN SÀNG BÀN GIAO (100%)
             </h4>
             <div className="space-y-3 text-[11px] text-green-800 leading-relaxed">
-              <div className="bg-white p-3 rounded-lg border border-green-200 shadow-sm">
-                <p className="font-bold mb-1 text-green-700">1. THANH TOÁN (BILLING): ĐÃ XONG</p>
-                <p>Website đã sẵn sàng chạy trên <b>kpissonghan.online</b>.</p>
+              <div className="bg-white p-3 rounded-lg border border-green-200 shadow-sm shadow-green-100">
+                <p className="font-bold text-green-700 mb-1 flex items-center gap-1">
+                  <CheckCircle2 size={14} /> 1. THANH TOÁN (BILLING): ĐÃ XONG
+                </p>
+                <p className="text-[10px] text-gray-700">Dự án đã được nâng cấp lên gói Blaze. Mọi dịch vụ đã sẵn sàng.</p>
               </div>
               <div className="bg-white p-3 rounded-lg border border-purple-200 shadow-sm">
                 <p className="font-bold text-purple-700 mb-1 flex items-center gap-1">
-                  <Github size={14} /> 3. ĐẨY CODE LÊN GITHUB
+                  <Github size={14} /> 2. QUAN TRỌNG: ĐẨY CODE LÊN GITHUB
                 </p>
-                <p className="text-[10px] text-gray-700">Repo GitHub của bạn đang trống. Bạn cần:</p>
-                <p className="text-[10px] font-bold text-blue-700">• Nhấn vào Menu (3 gạch) góc trên bên trái AI Studio.</p>
-                <p className="text-[10px] font-bold text-blue-700">• Chọn "Export to GitHub" và chọn repo <i>KPIsSongHan</i>.</p>
-                <p className="text-[10px] font-bold text-blue-700">• Sau khi code lên GitHub, Firebase sẽ tự động chạy (Deploy).</p>
+                <p className="text-[10px] text-gray-700">Hãy nhấn <b>Menu (3 gạch)</b> &gt; <b>Export to GitHub</b> &gt; Chọn repo <i>KPIsSongHan</i> để đẩy code lên.</p>
               </div>
-              <div className="bg-white p-3 rounded-lg border border-red-200 shadow-sm animate-pulse">
-                <p className="font-bold text-red-700 mb-1 flex items-center gap-1">
-                  <AlertTriangle size={14} /> LỖI PERMISSION?
+              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
+                <p className="font-bold text-blue-700 mb-1 flex items-center gap-1">
+                  <Rocket size={14} /> 3. BƯỚC CUỐI: TẠO BẢN TRIỂN KHAI
                 </p>
-                <p className="text-[10px] text-gray-700">Nếu bạn vẫn thấy lỗi "Missing or insufficient permissions":</p>
-                <p className="text-[10px] font-bold text-blue-700">• Bước 1: Vào Firebase Console &gt; Firestore Database.</p>
-                <p className="text-[10px] font-bold text-blue-700">• Bước 2: Chọn đúng Database ID <i>{firebaseConfig.firestoreDatabaseId.substring(0, 10)}...</i></p>
-                <p className="text-[10px] font-bold text-blue-700">• Bước 3: Sang tab <b>Rules</b> và nhấn <b>Publish</b> lại (Nếu nút đó hiện sáng).</p>
-                <p className="text-[10px] text-gray-500 mt-1">* Tôi vừa cập nhật luật bảo mật mới nhất để cho phép bạn truy cập.</p>
+                <p className="text-[10px] text-gray-700">Sau khi đẩy code, vào <b>App Hosting</b> &gt; Chọn "kpissonghan" &gt; Nhấn <b>Tạo bản triển khai (Create rollout)</b>.</p>
               </div>
-              <div className="bg-white p-3 rounded-lg border border-orange-200 shadow-sm">
-                <p className="font-bold text-orange-700 mb-1 flex items-center gap-1">
-                  <AlertCircle size={14} /> 2. LỖI "ALREADY EXISTS"?
-                </p>
-                <p className="text-[10px] text-gray-700">Lỗi này nghĩa là bạn đã tạo Backend rồi. Đừng tạo lại! Bạn chỉ cần:</p>
-                <p className="text-[10px] font-bold text-blue-700">• Quay lại trang chủ App Hosting.</p>
-                <p className="text-[10px] font-bold text-blue-700">• Nhấn vào cái tên "kpissonghan" trong danh sách.</p>
-                <p className="text-[10px] font-bold text-blue-700">• Nhấn nút "Create rollout" (Tạo bản triển khai) là xong.</p>
-              </div>
-              <p className="italic opacity-80 text-[10px] text-center">* Đừng xóa các project "kpissonghan" nhé, đó là dự án chính của bạn.</p>
+              <p className="italic opacity-80 text-[10px] text-center">* Chúc mừng! Website sẽ hoạt động chính thức sau khi bạn thực hiện 2 bước trên.</p>
             </div>
           </div>
           

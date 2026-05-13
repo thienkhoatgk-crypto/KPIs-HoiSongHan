@@ -20,16 +20,12 @@
 - **Khắc phục:** Vào **Cài đặt** > **Safari** > Tắt **Ngăn chặn theo dõi chéo trang**.
 - **Lưu ý:** Khi chạy trên tên miền chính thức và ổn định DNS, lỗi này sẽ ít xuất hiện hơn.
 
-## 5. Xử lý lỗi khi bàn giao
-- **Lỗi Billing (Artifact Registry):** Bạn đã nạp tiền thành công, lỗi này sẽ biến mất khi bạn tạo Rollout mới.
-- **Lỗi "Resource already exists":** Đây là thông báo Backend đã được tạo. Bạn chỉ cần vào Backend đó và nhấn **"Create rollout"** thay vì tạo mới.
-- **QUAN TRỌNG - Code trên GitHub:** Repo GitHub của bạn hiện đang trống. Firebase App Hosting cần code để chạy.
-  - Bạn phải quay lại AI Studio, nhấn vào **Menu (3 gạch)** góc trên bên trái.
-  - Chọn **Export to GitHub**, chọn đúng tài khoản và Repo `KPIsSongHan` để đẩy code lên.
-  - Sau khi code đã lên GitHub, quay lại Firebase App Hosting và nhấn **"Create rollout"**.
-- **Tên miền WWW:** Đừng quên thêm `www.kpissonghan.online` vào phần Custom Domain của Hosting để người dùng gõ kiểu gì cũng vào được.
+## 5. Các bước hoàn tất bàn giao
+1. **Export Code:** Bạn PHẢI dùng chức năng Export to GitHub của AI Studio để đẩy code lên repo `KPIsSongHan`.
+2. **Kích hoạt Hosting:** Vào Firebase Console > App Hosting > Chọn Backend `kpissonghan` > Nhấn **"Create rollout"**.
+3. **Authorized Domains:** Đảm bảo cả `kpissonghan.online` và `www.kpissonghan.online` đã có trong mục Authentication > Settings.
 
-## 6. Danh sách DNS chuẩn (Kết nối vĩnh viễn)
+## 6. Danh sách DNS chuẩn (Vận hành vĩnh viễn)
 Để trang web chạy ổn định, bản ghi DNS tại trang quản lý tên miền (inet, matbao, tenten...) phải như sau:
 - **A Record:** `@` trỏ về `151.101.1.195`
 - **CNAME Record:** `www` trỏ về `kpissonghan.online`

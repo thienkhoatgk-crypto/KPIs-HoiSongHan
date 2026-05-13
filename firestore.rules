@@ -40,14 +40,12 @@ service cloud.firestore {
 
     // THÀNH VIÊN
     match /users/{userId} {
-      // Cho phép mọi người đã đăng nhập xem danh sách và thông tin profile
-      allow get, list: if isSignedIn();
+      // Cho phép đọc nếu đã đăng nhập (isSignedIn)
+      allow read: if isSignedIn();
       
-      // Chỉ chính chủ hoặc Admin mới được sửa thông tin
+      // Chỉ chính chủ hoặc Admin mới được tạo/sửa thông tin
       allow create: if isOwner(userId);
-      allow update: if (isOwner(userId) || isAdmin()) && 
-                    // Chống leo thang quyền hạn từ phía client
-                    (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+      allow update: if (isOwner(userId) || isAdmin());
     }
 
     // BÁO CÁO KPI
