@@ -5,6 +5,8 @@ import {
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   signOut,
   User
@@ -3685,6 +3687,7 @@ export default function App() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [editingReport, setEditingReport] = useState<KPIReport | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummary[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -3703,7 +3706,7 @@ export default function App() {
     let meetingsUnsub: (() => void) | null = null;
     let guestsUnsub: (() => void) | null = null;
 
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+    const handleAuthState = async (u: User | null) => {
       setUser(u);
       
       // Cleanup existing listeners if any
@@ -3713,6 +3716,10 @@ export default function App() {
       if (guestsUnsub) guestsUnsub();
 
       if (u) {
+        setLoginError(null);
+        // Clear redirect flagging
+        localStorage.removeItem('kpi_pending_redirect');
+        
         try {
           const docRef = doc(db, 'users', u.uid);
           const docSnap = await getDoc(docRef);
@@ -3763,12 +3770,54 @@ export default function App() {
         setReports([]);
         setMeetings([]);
         setGuests([]);
+        
+        // Handle iOS/Safari cookie issues
+        if (localStorage.getItem('kpi_pending_redirect')) {
+          setLoginError("Không thể hoàn tất đăng nhập. Vui lòng vào Cài đặt iPhone > Safari > Tắt 'Ngăn chặn theo dõi chéo trang' (Prevent Cross-Site Tracking) và thử lại.");
+          localStorage.removeItem('kpi_pending_redirect');
+        }
       }
       setLoading(false);
-    });
+    };
+
+    // Initialize Auth handling securely
+    let authUnsub: (() => void) | undefined;
+    
+    const initializeAuth = async () => {
+      // 1. Check for WWW issues on custom domain
+      const hostname = window.location.hostname;
+      if (hostname.includes('kpissonghan.online') && hostname.startsWith('www.')) {
+        console.warn("Đang dùng WWW. Hãy đảm bảo 'www.kpissonghan.online' đã được thêm vào Authorized Domains.");
+      }
+
+      try {
+        // First check if there's a redirect result pending
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          await handleAuthState(result.user);
+          return; // Skip onAuthStateChanged as we already handled it
+        }
+      } catch (err: any) {
+        console.error("Redirect check error:", err);
+        localStorage.removeItem('kpi_pending_redirect');
+        
+        let msg = `Lỗi xác thực: ${err.message}`;
+        if (err.code === 'auth/unauthorized-domain') {
+          msg = "Tên miền chưa được ủy quyền. Hãy thêm cả kpissonghan.online và www.kpissonghan.online vào Firebase.";
+        } else if (err.code === 'auth/network-request-failed') {
+          msg = "Lỗi kết nối hoặc Cookie bị chặn. (iOS: Hãy tắt 'Ngăn chặn theo dõi chéo trang' trong cài đặt Safari).";
+        }
+        setLoginError(msg);
+      }
+
+      // Standard listener
+      authUnsub = onAuthStateChanged(auth, handleAuthState);
+    };
+
+    initializeAuth();
 
     return () => {
-      unsubscribe();
+      if (authUnsub) authUnsub();
       if (usersUnsub) usersUnsub();
       if (reportsUnsub) reportsUnsub();
       if (meetingsUnsub) meetingsUnsub();
@@ -3777,11 +3826,45 @@ export default function App() {
   }, []);
 
   const handleLogin = async () => {
+    setLoginError(null);
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
+      // On iOS/Safari, popup often fails. We show a clear choice or try redirect.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        setLoginError("Đang chuyển hướng đăng nhập cho iPhone...");
+        localStorage.setItem('kpi_pending_redirect', 'true');
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+
       await signInWithPopup(auth, provider);
-    } catch (err) {
-      console.error("Login error:", err);
+    } catch (err: any) {
+      console.error("Login error detail:", err);
+      
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+        setLoginError("Popup bị chặn. Vui lòng bấm nút 'Cách 2' ở dưới.");
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setLoginError("Tên miền chưa được cấp quyền. Vui lòng kiểm tra Firebase Console.");
+      } else {
+        setLoginError(`Lỗi (${err.code}): ${err.message}`);
+      }
+    }
+  };
+
+  const handleLoginRedirect = async () => {
+    setLoginError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      // Flag that we are intentionally redirecting to handle potential cookie blocks better
+      localStorage.setItem('kpi_pending_redirect', 'true');
+      await signInWithRedirect(auth, provider);
+    } catch (err: any) {
+      localStorage.removeItem('kpi_pending_redirect');
+      setLoginError(`Lỗi: ${err.message}`);
     }
   };
 
@@ -3871,8 +3954,59 @@ export default function App() {
             <div className="bg-white p-1 rounded-lg group-hover:scale-110 transition-transform">
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
             </div>
-            <span className="text-lg">Đăng nhập hệ thống</span>
+            <div className="text-left">
+              <div className="text-lg leading-tight">Đăng nhập (Cách 1)</div>
+              <div className="text-[10px] opacity-70 font-medium">Sử dụng Google Popup</div>
+            </div>
           </button>
+
+          <button 
+            onClick={handleLoginRedirect}
+            className="w-full mt-3 py-4 bg-white border-2 border-[#1e3a8a] text-[#1e3a8a] font-bold rounded-2xl hover:bg-blue-50 transition-all flex items-center justify-center gap-3 shadow-md group"
+          >
+            <RefreshCcw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+            <div className="text-left">
+              <div className="text-md leading-tight">Đăng nhập (Cách 2)</div>
+              <div className="text-[10px] opacity-70 font-medium">Sử dụng Redirect (Khuyên dùng nếu Popup lỗi)</div>
+            </div>
+          </button>
+
+          {loginError && (
+            <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-left">
+              <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs text-red-700 font-bold mb-1">Cảnh báo đăng nhập:</p>
+                <p className="text-[11px] text-red-700 leading-relaxed">{loginError}</p>
+                <div className="mt-2 text-[10px] text-red-600 space-y-1 italic">
+                  <p>• Đảm bảo trình duyệt không chặn "Third-party Cookies".</p>
+                  <p>• Nếu vẫn lỗi, hãy thử dùng trình duyệt khác hoặc ẩn danh.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl text-left">
+            <h4 className="text-xs font-black text-[#1e3a8a] uppercase mb-2 flex items-center gap-2">
+              <Info size={14} /> HƯỚNG DẪN HOÀN THIỆN TÊN MIỀN
+            </h4>
+            <div className="space-y-3 text-[11px] text-blue-800 leading-relaxed">
+              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
+                <p className="font-bold text-green-600 mb-2 flex items-center gap-1">
+                  <CheckCircle size={14} /> 1. DỌN DẸP DNS (QUAN TRỌNG)
+                </p>
+                <div className="space-y-1 text-[10px] text-gray-600">
+                  <p>• <b>Bản ghi A:</b> Xóa hết các IP khác, CHỈ GIỮ LẠI <b>151.101.1.195</b>.</p>
+                  <p>• <b>Bản ghi AAAA:</b> XÓA HẾT (dòng có chữ và số dài).</p>
+                  <p>• <b>Bản ghi TXT:</b> Chỉ giữ lại mã xác thực của Firebase (gen-lang-client-...).</p>
+                </div>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
+                <p className="font-bold text-red-600 mb-1">2. LƯU Ý CHO IPHONE</p>
+                <p>Địa chỉ <b>kpissonghan.online</b> hiện đã được kết nối. Nếu đăng nhập vẫn lỗi: Vào <b>Cài đặt</b> &gt; <b>Safari</b> &gt; Tắt <b>"Ngăn chặn theo dõi chéo trang"</b> (Prevent Cross-Site Tracking).</p>
+              </div>
+              <p className="italic opacity-70 font-medium">* Sau khi DNS sạch, lỗi "chớp tắt" sẽ tự động hết.</p>
+            </div>
+          </div>
           
           <p className="mt-8 text-xs text-gray-400 font-medium italic">Hệ thống quản lý KPI nội bộ</p>
           
