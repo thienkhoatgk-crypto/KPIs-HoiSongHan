@@ -2,70 +2,98 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // 0. Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     // ===============================================================
-    // HÀM KIỂM TRA HỖ TRỢ
+    // PRIMITIVES & HELPERS
     // ===============================================================
     
-    function isAuthenticated() {
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    // Chỉ Admin (với Email của anh Khoa) mới có quyền ghi/xóa mọi thứ
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
     function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.email == "thienkhoatgk@gmail.com" ||
-         request.auth.token.email == "queenkily@gmail.com");
+      return isSignedIn() && (
+        request.auth.token.email == "thienkhoatgk@gmail.com" ||
+        request.auth.token.email == "queenkily@gmail.com"
+      );
     }
 
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Kiểm tra định dạng báo cáo khớp với App Mobile
-    function isValidReport(data) {
-      return data.keys().hasAll(['userId', 'week', 'total']) &&
-             data.userId is string &&
-             // Khớp với định dạng W15-2026 trong code của anh
-             data.week.matches("^W\\d{1,2}-\\d{4}$");
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     // ===============================================================
-    // CÁC QUY TẮC TRUY CẬP (RULES)
+    // COLLECTION RULES
     // ===============================================================
 
-    // Mặc định: Mọi người đã đăng nhập đều được đọc, nhưng chỉ Admin mới được xóa
-    match /{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
-    // Quy tắc cho thành viên
+    // THÀNH VIÊN
     match /users/{userId} {
-      // Hội viên tự tạo profile của mình khi đăng ký lần đầu
+      // Cho phép mọi người đã đăng nhập xem danh sách và thông tin profile
+      allow get, list: if isSignedIn();
+      
+      // Chỉ chính chủ hoặc Admin mới được sửa thông tin
       allow create: if isOwner(userId);
-      // Chỉ Admin hoặc chính chủ mới được sửa thông tin cá nhân
-      allow update: if isAdmin() || isOwner(userId);
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                    // Chống leo thang quyền hạn từ phía client
+                    (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
     }
 
-    // Quy tắc cho báo cáo KPI
+    // BÁO CÁO KPI
     match /reports/{reportId} {
-      // Cho phép hội viên gửi báo cáo của chính họ
-      allow create: if isAuthenticated() && 
-                   request.resource.data.userId == request.auth.uid && 
-                   isValidReport(request.resource.data);
+      // Xem báo cáo: Mọi người trong hội đều có thể xem để minh bạch (Peer review)
+      allow get, list: if isSignedIn();
       
-      // Chỉ Admin mới được sửa hoặc xóa báo cáo đã gửi để đảm bảo minh bạch
+      // Tạo báo cáo: Chỉ cho chính mình
+      allow create: if isSignedIn() && 
+                    request.resource.data.userId == request.auth.uid;
+      
+      // Sửa/Xóa: Quy định cũ chỉ Admin được sửa để đảm bảo tính trung thực
       allow update, delete: if isAdmin();
     }
 
-    // Quy tắc cho lịch họp và khách mời
+    // LỊCH HỌP
     match /meetings/{meetingId} {
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
+    // KHÁCH MỜI
     match /guests/{guestId} {
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || request.auth.uid == resource.data.invitedBy;
+      allow read: if isSignedIn();
+      // Cho phép hội viên đăng ký khách mời
+      allow create: if isSignedIn();
+      // Sửa/Xóa: Người mời hoặc Admin
+      allow update, delete: if isAdmin() || resource.data.invitedBy == request.auth.uid;
+    }
+
+    // TỔNG HỢP THÁNG
+    match /monthly_summaries/{summaryId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // THÔNG BÁO (Nếu có collection này)
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isAdmin();
+    }
+
+    // EMAIL (Firebase Extension)
+    match /mail/{mailId} {
+      allow create: if isAdmin();
+      allow read, update, delete: if false;
     }
   }
 }

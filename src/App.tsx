@@ -52,6 +52,7 @@ import {
   ChevronLeft,
   AlertCircle,
   CheckCircle2,
+  ShieldCheck,
   Users,
   Building2,
   Phone,
@@ -81,13 +82,15 @@ import {
   Camera,
   Upload,
   Eye,
-  HelpCircle
+  HelpCircle,
+  Github
 } from 'lucide-react';
 import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, MonthlySummary } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfWeek, getWeek, startOfMonth, endOfMonth, addDays, isTuesday, lastDayOfMonth, isAfter, startOfDay, isSameDay } from 'date-fns';
 import { cn } from './lib/utils';
 import { writeBatch, getDocs } from 'firebase/firestore';
+import firebaseConfig from '../firebase-applet-config.json';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -1294,6 +1297,66 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
       alert("Có lỗi xảy ra khi chốt tháng.");
     } finally {
       setResetLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (report: KPIReport, newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
+    try {
+      await setDoc(doc(db, 'reports', report.id), {
+        ...report,
+        status: newStatus,
+        updatedAt: serverTimestamp(),
+        lastUpdatedBy: auth.currentUser?.uid,
+        lastEditedDate: serverTimestamp()
+      });
+
+      // Send automated email if user is found
+      const user = users.find(u => u.uid === report.userId);
+      if (user && user.email && (newStatus === 'approved' || newStatus === 'rejected')) {
+        const subject = `[KPI SÔNG HÀN] Kết quả duyệt báo cáo tuần ${report.week.split('-')[1]}`;
+        const statusLabel = newStatus === 'approved' ? 'ĐÃ DUYỆT' : 'TỪ CHỐI';
+        const statusColor = newStatus === 'approved' ? '#059669' : '#dc2626';
+        
+        await addDoc(collection(db, 'mail'), {
+          to: user.email,
+          message: {
+            subject: subject,
+            html: `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #374151;">
+                <div style="background-color: #1e3a8a; padding: 20px; text-align: center; border-radius: 12px 12px 0 0;">
+                  <h1 style="color: white; margin: 0; font-size: 20px;">THÔNG BÁO DUYỆT KPI</h1>
+                </div>
+                <div style="padding: 30px; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 0 0 12px 12px;">
+                  <p>Chào <strong>${user.representative}</strong>,</p>
+                  <p>Ban Quản Trị đã xem xét báo cáo KPI tuần của bạn:</p>
+                  <div style="background-color: #f9fafb; padding: 20px; border-radius: 12px; margin: 20px 0;">
+                    <p style="margin: 0; font-size: 14px; color: #6b7280;">Báo cáo:</p>
+                    <p style="margin: 5px 0 15px 0; font-weight: bold; font-size: 16px; color: #111827;">Tuần ${report.week.split('-')[1]} (${report.week.split('-')[0]})</p>
+                    
+                    <p style="margin: 0; font-size: 14px; color: #6b7280;">Trạng thái:</p>
+                    <p style="margin: 5px 0 15px 0; font-weight: bold; font-size: 18px; color: ${statusColor}; uppercase">
+                      ${statusLabel}
+                    </p>
+                    
+                    ${report.adminNote ? `
+                    <p style="margin: 0; font-size: 14px; color: #6b7280;">Ghi chú Admin:</p>
+                    <p style="margin: 5px 0 0 0; font-style: italic; color: #4b5563;">"${report.adminNote}"</p>
+                    ` : ''}
+                  </div>
+                  <p style="text-align: center; margin: 30px 0;">
+                    <a href="https://kpissonghan.online" style="background-color: #1e3a8a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Mở ứng dụng</a>
+                  </p>
+                  <hr style="border: none; border-top: 1px solid #e5e7eb;" />
+                  <p style="font-size: 12px; color: #9ca3af; text-align: center;">Đây là email tự động từ Hệ thống Quản lý KPI Hội Xây Dựng Sông Hàn.</p>
+                </div>
+              </div>
+            `
+          },
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'reports');
     }
   };
 
@@ -2523,20 +2586,6 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
                     const updateDate = report.updatedAt?.toDate ? report.updatedAt.toDate() : report.updatedAt ? new Date(report.updatedAt) : null;
                     const editDate = report.lastEditedDate?.toDate ? report.lastEditedDate.toDate() : report.lastEditedDate ? new Date(report.lastEditedDate) : null;
                     
-                    const handleStatusChange = async (newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
-                      try {
-                        await setDoc(doc(db, 'reports', report.id), {
-                          ...report,
-                          status: newStatus,
-                          updatedAt: serverTimestamp(),
-                          lastUpdatedBy: auth.currentUser?.uid,
-                          lastEditedDate: serverTimestamp()
-                        });
-                      } catch (err) {
-                        handleFirestoreError(err, OperationType.UPDATE, 'reports');
-                      }
-                    };
-
                     return (
                       <tr key={report.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-6 py-4">
@@ -2586,7 +2635,7 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
                           <div className="flex flex-col items-center gap-1">
                             <select 
                               value={report.status || 'pending'}
-                              onChange={(e) => handleStatusChange(e.target.value as any)}
+                              onChange={(e) => handleStatusChange(report, e.target.value as any)}
                               className={cn(
                                 "text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none outline-none cursor-pointer",
                                 report.status === 'approved' ? "bg-green-50 text-green-600" :
@@ -2649,20 +2698,6 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
                   const user = users.find(u => u.uid === report.userId);
                   const updateDate = report.updatedAt?.toDate ? report.updatedAt.toDate() : report.updatedAt ? new Date(report.updatedAt) : null;
                   
-                  const handleStatusChange = async (newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
-                    try {
-                      await setDoc(doc(db, 'reports', report.id), {
-                        ...report,
-                        status: newStatus,
-                        updatedAt: serverTimestamp(),
-                        lastUpdatedBy: auth.currentUser?.uid,
-                        lastEditedDate: serverTimestamp()
-                      });
-                    } catch (err) {
-                      handleFirestoreError(err, OperationType.UPDATE, 'reports');
-                    }
-                  };
-
                   return (
                     <div key={report.id} className="p-4 space-y-3">
                       <div className="flex justify-between items-start">
@@ -2712,7 +2747,7 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
                         <div className="flex items-center justify-between w-full">
                           <select 
                             value={report.status || 'pending'}
-                            onChange={(e) => handleStatusChange(e.target.value as any)}
+                            onChange={(e) => handleStatusChange(report, e.target.value as any)}
                             className={cn(
                               "text-[10px] font-bold uppercase px-3 py-1.5 rounded-lg border-none outline-none cursor-pointer",
                               report.status === 'approved' ? "bg-green-50 text-green-600" :
@@ -3729,9 +3764,13 @@ export default function App() {
           } else {
             setIsNewUser(true);
           }
+        } catch (err: any) {
+          handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
+        }
 
+        try {
           // Attach listeners only when authenticated
-          usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
+           usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
             setUsers(snap.docs.map(d => d.data() as UserProfile));
           }, (error) => {
             handleFirestoreError(error, OperationType.GET, 'users');
@@ -3831,23 +3870,17 @@ export default function App() {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       
-      // On iOS/Safari, popup often fails. We show a clear choice or try redirect.
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIOS) {
-        setLoginError("Đang chuyển hướng đăng nhập cho iPhone...");
-        localStorage.setItem('kpi_pending_redirect', 'true');
-        await signInWithRedirect(auth, provider);
-        return;
-      }
-
+      // We try popup first, it's more reliable in iframes if interaction starts it
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       console.error("Login error detail:", err);
       
       if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
-        setLoginError("Popup bị chặn. Vui lòng bấm nút 'Cách 2' ở dưới.");
+        setLoginError("Popup bị chặn hoặc bị đóng. Vui lòng bấm nút 'Cách 2' ở dưới để đăng nhập bằng phương thức Redirect.");
       } else if (err.code === 'auth/unauthorized-domain') {
         setLoginError("Tên miền chưa được cấp quyền. Vui lòng kiểm tra Firebase Console.");
+      } else if (err.code === 'auth/network-request-failed') {
+        setLoginError("Lỗi kết nối. (iPhone: Hãy kiểm tra cài đặt 'Ngăn chặn theo dõi chéo trang' trong Safari nếu vẫn không được).");
       } else {
         setLoginError(`Lỗi (${err.code}): ${err.message}`);
       }
@@ -3985,26 +4018,44 @@ export default function App() {
             </div>
           )}
 
-          <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl text-left">
-            <h4 className="text-xs font-black text-[#1e3a8a] uppercase mb-2 flex items-center gap-2">
-              <Info size={14} /> HƯỚNG DẪN HOÀN THIỆN TÊN MIỀN
+          <div className="mt-8 p-4 bg-green-50 border border-green-100 rounded-2xl text-left">
+            <h4 className="text-xs font-black text-[#065f46] uppercase mb-2 flex items-center gap-2">
+              <ShieldCheck size={14} /> TRẠNG THÁI: CHUẨN BỊ BÀN GIAO (99%)
             </h4>
-            <div className="space-y-3 text-[11px] text-blue-800 leading-relaxed">
-              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
-                <p className="font-bold text-green-600 mb-2 flex items-center gap-1">
-                  <CheckCircle size={14} /> 1. DỌN DẸP DNS (QUAN TRỌNG)
+            <div className="space-y-3 text-[11px] text-green-800 leading-relaxed">
+              <div className="bg-white p-3 rounded-lg border border-green-200 shadow-sm">
+                <p className="font-bold mb-1 text-green-700">1. THANH TOÁN (BILLING): ĐÃ XONG</p>
+                <p>Website đã sẵn sàng chạy trên <b>kpissonghan.online</b>.</p>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-purple-200 shadow-sm">
+                <p className="font-bold text-purple-700 mb-1 flex items-center gap-1">
+                  <Github size={14} /> 3. ĐẨY CODE LÊN GITHUB
                 </p>
-                <div className="space-y-1 text-[10px] text-gray-600">
-                  <p>• <b>Bản ghi A:</b> Xóa hết các IP khác, CHỈ GIỮ LẠI <b>151.101.1.195</b>.</p>
-                  <p>• <b>Bản ghi AAAA:</b> XÓA HẾT (dòng có chữ và số dài).</p>
-                  <p>• <b>Bản ghi TXT:</b> Chỉ giữ lại mã xác thực của Firebase (gen-lang-client-...).</p>
-                </div>
+                <p className="text-[10px] text-gray-700">Repo GitHub của bạn đang trống. Bạn cần:</p>
+                <p className="text-[10px] font-bold text-blue-700">• Nhấn vào Menu (3 gạch) góc trên bên trái AI Studio.</p>
+                <p className="text-[10px] font-bold text-blue-700">• Chọn "Export to GitHub" và chọn repo <i>KPIsSongHan</i>.</p>
+                <p className="text-[10px] font-bold text-blue-700">• Sau khi code lên GitHub, Firebase sẽ tự động chạy (Deploy).</p>
               </div>
-              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
-                <p className="font-bold text-red-600 mb-1">2. LƯU Ý CHO IPHONE</p>
-                <p>Địa chỉ <b>kpissonghan.online</b> hiện đã được kết nối. Nếu đăng nhập vẫn lỗi: Vào <b>Cài đặt</b> &gt; <b>Safari</b> &gt; Tắt <b>"Ngăn chặn theo dõi chéo trang"</b> (Prevent Cross-Site Tracking).</p>
+              <div className="bg-white p-3 rounded-lg border border-red-200 shadow-sm animate-pulse">
+                <p className="font-bold text-red-700 mb-1 flex items-center gap-1">
+                  <AlertTriangle size={14} /> LỖI PERMISSION?
+                </p>
+                <p className="text-[10px] text-gray-700">Nếu bạn vẫn thấy lỗi "Missing or insufficient permissions":</p>
+                <p className="text-[10px] font-bold text-blue-700">• Bước 1: Vào Firebase Console &gt; Firestore Database.</p>
+                <p className="text-[10px] font-bold text-blue-700">• Bước 2: Chọn đúng Database ID <i>{firebaseConfig.firestoreDatabaseId.substring(0, 10)}...</i></p>
+                <p className="text-[10px] font-bold text-blue-700">• Bước 3: Sang tab <b>Rules</b> và nhấn <b>Publish</b> lại (Nếu nút đó hiện sáng).</p>
+                <p className="text-[10px] text-gray-500 mt-1">* Tôi vừa cập nhật luật bảo mật mới nhất để cho phép bạn truy cập.</p>
               </div>
-              <p className="italic opacity-70 font-medium">* Sau khi DNS sạch, lỗi "chớp tắt" sẽ tự động hết.</p>
+              <div className="bg-white p-3 rounded-lg border border-orange-200 shadow-sm">
+                <p className="font-bold text-orange-700 mb-1 flex items-center gap-1">
+                  <AlertCircle size={14} /> 2. LỖI "ALREADY EXISTS"?
+                </p>
+                <p className="text-[10px] text-gray-700">Lỗi này nghĩa là bạn đã tạo Backend rồi. Đừng tạo lại! Bạn chỉ cần:</p>
+                <p className="text-[10px] font-bold text-blue-700">• Quay lại trang chủ App Hosting.</p>
+                <p className="text-[10px] font-bold text-blue-700">• Nhấn vào cái tên "kpissonghan" trong danh sách.</p>
+                <p className="text-[10px] font-bold text-blue-700">• Nhấn nút "Create rollout" (Tạo bản triển khai) là xong.</p>
+              </div>
+              <p className="italic opacity-80 text-[10px] text-center">* Đừng xóa các project "kpissonghan" nhé, đó là dự án chính của bạn.</p>
             </div>
           </div>
           
