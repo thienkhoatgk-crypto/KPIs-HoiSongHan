@@ -2,96 +2,43 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // 0. Default deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // ===============================================================
-    // PRIMITIVES & HELPERS
-    // ===============================================================
-    
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == "thienkhoatgk@gmail.com" ||
-        request.auth.token.email == "queenkily@gmail.com"
-      );
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // ===============================================================
-    // COLLECTION RULES
-    // ===============================================================
-
-    // THÀNH VIÊN
+    // 1. Users collection
     match /users/{userId} {
-      // Cho phép đọc nếu đã đăng nhập (isSignedIn)
-      allow read: if isSignedIn();
-      
-      // Chỉ chính chủ hoặc Admin mới được tạo/sửa thông tin
-      allow create: if isOwner(userId);
-      allow update: if (isOwner(userId) || isAdmin());
+      // Allow anyone logged in to read any profile
+      allow read: if request.auth != null;
+      // Allow user to write their own profile, or the admin
+      allow write: if request.auth != null && (request.auth.uid == userId || request.auth.token.email == "thienkhoatgk@gmail.com");
     }
 
-    // BÁO CÁO KPI
+    // 2. Reports collection
     match /reports/{reportId} {
-      // Xem báo cáo: Mọi người trong hội đều có thể xem để minh bạch (Peer review)
-      allow get, list: if isSignedIn();
-      
-      // Tạo báo cáo: Chỉ cho chính mình
-      allow create: if isSignedIn() && 
-                    request.resource.data.userId == request.auth.uid;
-      
-      // Sửa/Xóa: Quy định cũ chỉ Admin được sửa để đảm bảo tính trung thực
-      allow update, delete: if isAdmin();
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && (request.auth.token.email == "thienkhoatgk@gmail.com" || request.auth.token.email == "queenkily@gmail.com");
     }
 
-    // LỊCH HỌP
+    // 3. Meetings
     match /meetings/{meetingId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (request.auth.token.email == "thienkhoatgk@gmail.com");
     }
 
-    // KHÁCH MỜI
+    // 4. Guests
     match /guests/{guestId} {
-      allow read: if isSignedIn();
-      // Cho phép hội viên đăng ký khách mời
-      allow create: if isSignedIn();
-      // Sửa/Xóa: Người mời hoặc Admin
-      allow update, delete: if isAdmin() || resource.data.invitedBy == request.auth.uid;
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && (request.auth.token.email == "thienkhoatgk@gmail.com" || resource.data.invitedBy == request.auth.uid);
     }
 
-    // TỔNG HỢP THÁNG
+    // 5. Monthly summaries
     match /monthly_summaries/{summaryId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == "thienkhoatgk@gmail.com";
     }
 
-    // THÔNG BÁO (Nếu có collection này)
-    match /notifications/{notifId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isAdmin();
-    }
-
-    // EMAIL (Firebase Extension)
-    match /mail/{mailId} {
-      allow create: if isAdmin();
-      allow read, update, delete: if false;
+    // 6. Global fallback for admin
+    match /{document=**} {
+      allow read, write: if request.auth != null && request.auth.token.email == "thienkhoatgk@gmail.com";
     }
   }
 }

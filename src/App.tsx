@@ -3744,6 +3744,7 @@ export default function App() {
     let guestsUnsub: (() => void) | null = null;
 
     const handleAuthState = async (u: User | null) => {
+      console.log("Current Database ID:", firebaseConfig.firestoreDatabaseId);
       setUser(u);
       
       // Cleanup existing listeners if any
@@ -4035,13 +4036,31 @@ export default function App() {
                 <p className="font-bold text-purple-700 mb-1 flex items-center gap-1">
                   <Github size={14} /> 2. QUAN TRỌNG: ĐẨY CODE LÊN GITHUB
                 </p>
-                <p className="text-[10px] text-gray-700">Hãy nhấn <b>Menu (3 gạch)</b> &gt; <b>Export to GitHub</b> &gt; Chọn repo <i>KPIsSongHan</i> để đẩy code lên.</p>
+                <div className="text-[10px] text-gray-700 space-y-1">
+                  <p>• Nhấn <b>Menu (3 gạch)</b> &gt; <b>Export to GitHub</b> &gt; Chọn <b>"KPIs-HoiSongHan"</b> (Vì AI Studio đang kết nối repo này).</p>
+                  <p>• Nếu bạn muốn dùng <i>KPIsSongHan</i>, hãy nhấn "Disconnect" trong phần GitHub của AI Studio và kết nối lại.</p>
+                </div>
               </div>
-              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
-                <p className="font-bold text-blue-700 mb-1 flex items-center gap-1">
-                  <Rocket size={14} /> 3. BƯỚC CUỐI: TẠO BẢN TRIỂN KHAI
+              <div className="bg-white p-3 rounded-lg border border-red-200 shadow-sm animate-pulse">
+                <p className="font-bold text-red-700 mb-1 flex items-center gap-1">
+                  <AlertTriangle size={14} /> LỖI PERMISSION? (QUAN TRỌNG)
                 </p>
-                <p className="text-[10px] text-gray-700">Sau khi đẩy code, vào <b>App Hosting</b> &gt; Chọn "kpissonghan" &gt; Nhấn <b>Tạo bản triển khai (Create rollout)</b>.</p>
+                <div className="space-y-1 text-[10px] text-gray-700">
+                  <p>1. <a href={`https://console.firebase.google.com/project/kpissonghan/firestore/databases/${firebaseConfig.firestoreDatabaseId}/rules`} target="_blank" rel="noreferrer" className="text-blue-600 font-bold underline">NHẤN VÀO ĐÂY</a> để mở đúng trang Rules.</p>
+                  <p className="bg-yellow-100 p-1 font-bold">2. CHỌN ĐÚNG DATABASE: Nếu thấy chữ "(default)", hãy đổi sang ID bắt đầu bằng "ai-studio..."</p>
+                  <p>3. Nếu thấy nút <b>Publish</b> (Xuất bản) hiện lên, hãy nhấn nó.</p>
+                  <p>4. F5 tải lại trang này sau 1 phút.</p>
+                </div>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm shadow-blue-100">
+                <p className="font-bold text-blue-700 mb-1 flex items-center gap-1">
+                  <Rocket size={14} /> 3. HƯỚNG DẪN BẢNG "TẠO BẢN TRIỂN KHAI"
+                </p>
+                <div className="text-[10px] text-gray-700 space-y-1">
+                  <p>• <b>Chi nhánh:</b> Giữ nguyên <code className="bg-gray-100 px-1">main</code>.</p>
+                  <p>• <b>Cam kết triển khai:</b> Chọn dòng đầu tiên <b>"Lần cập nhật cuối cùng"</b> (Để không phải nhập ID).</p>
+                  <p>• Nhấn nút <b>Tạo nên</b> để bắt đầu chạy web.</p>
+                </div>
               </div>
               <p className="italic opacity-80 text-[10px] text-center">* Chúc mừng! Website sẽ hoạt động chính thức sau khi bạn thực hiện 2 bước trên.</p>
             </div>

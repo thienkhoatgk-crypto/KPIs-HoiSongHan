@@ -21,9 +21,16 @@
 - **Lưu ý:** Khi chạy trên tên miền chính thức và ổn định DNS, lỗi này sẽ ít xuất hiện hơn.
 
 ## 5. Các bước hoàn tất bàn giao
-1. **Export Code:** Bạn PHẢI dùng chức năng Export to GitHub của AI Studio để đẩy code lên repo `KPIsSongHan`.
-2. **Kích hoạt Hosting:** Vào Firebase Console > App Hosting > Chọn Backend `kpissonghan` > Nhấn **"Create rollout"**.
-3. **Authorized Domains:** Đảm bảo cả `kpissonghan.online` và `www.kpissonghan.online` đã có trong mục Authentication > Settings.
+1. **Export Code:** Đẩy code từ AI Studio lên Repo GitHub.
+2. **Kích hoạt Hosting:** Chọn Backend `kpissonghan` > Nhấn **"Create rollout"**.
+3. **Bảng Create rollout:** 
+   - Chọn dòng đầu tiên: **"Lần cập nhật cuối cùng"** (Để hệ thống tự lấy code mới nhất, không cần nhập ID).
+   - Nhấn **"Tạo nên"**.
+4. **KIỂM TRA QUYỀN TRUY CẬP (Firestore):**
+   - Vào Firestore Database.
+   - **QUAN TRỌNG:** Ở phía trên cùng, nhấn vào chữ `(default)` để đổi sang database: `ai-studio-kpisnghnconstruc...` (ID đầy đủ trong file config).
+   - Sang tab **Rules**, nếu thấy nút **Publish** màu xanh hiện lên thì phải nhấn vào đó.
+5. **Authorized Domains:** Kiểm tra Authentication > Settings đã có đủ tên miền chưa.
 
 ## 6. Danh sách DNS chuẩn (Vận hành vĩnh viễn)
 Để trang web chạy ổn định, bản ghi DNS tại trang quản lý tên miền (inet, matbao, tenten...) phải như sau:
