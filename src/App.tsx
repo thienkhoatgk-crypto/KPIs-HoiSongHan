@@ -1780,31 +1780,38 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
     return groupUsers.length ? Math.round(total / groupUsers.length) : 0;
   });
 
-  const currentYear = new Date().getFullYear();
-  const summaryData = users.map(user => {
-    const userReports = reports.filter(r => r.userId === user.uid);
-    const months = Array(12).fill(0).map((_, i) => {
-      const monthReports = userReports.filter(r => {
-        const d = r.date?.toDate ? r.date.toDate() : new Date(r.date);
-        return d.getFullYear() === currentYear && d.getMonth() === i;
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
+  
+  const summaryData = useMemo(() => {
+    return users.map(user => {
+      const userReports = reports.filter(r => r.userId === user.uid);
+      const months = Array(12).fill(0).map((_, i) => {
+        const monthReports = userReports.filter(r => {
+          const d = r.date?.toDate ? r.date.toDate() : new Date(r.date);
+          return d.getFullYear() === currentYear && d.getMonth() === i;
+        });
+        return calculateMonthlyScore(monthReports, reports).total;
       });
-      return calculateMonthlyScore(monthReports, reports).total;
+      const term1 = months.slice(0, 6).reduce((a, b) => a + b, 0);
+      const term2 = months.slice(6, 12).reduce((a, b) => a + b, 0);
+      const totalYear = months.reduce((a, b) => a + b, 0);
+      return { ...user, months, term1, term2, totalYear };
     });
-    const term1 = months.slice(0, 6).reduce((a, b) => a + b, 0);
-    const term2 = months.slice(6, 12).reduce((a, b) => a + b, 0);
-    const totalYear = months.reduce((a, b) => a + b, 0);
-    return { ...user, months, term1, term2, totalYear };
-  });
+  }, [users, reports, currentYear]);
 
   // Dashboard calculations
-  const totalPoints = reports.reduce((sum, r) => sum + r.total, 0);
-  const groupStats = [0, 1, 2, 3].map(g => {
-    const groupUsers = users.filter(u => u.group === g);
-    const groupReports = reports.filter(r => groupUsers.some(u => u.uid === r.userId));
-    const totalPoints = groupReports.reduce((sum, r) => sum + r.total, 0);
-    const avgPoints = groupUsers.length ? Math.round(totalPoints / groupUsers.length) : 0;
-    return { name: g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`, points: totalPoints, avg: avgPoints, members: groupUsers.length };
-  });
+  const totalPoints = useMemo(() => reports.reduce((sum, r) => sum + r.total, 0), [reports]);
+  
+  const groupStats = useMemo(() => {
+    const userGroups = new Map(users.map(u => [u.uid, u.group]));
+    return [0, 1, 2, 3].map(g => {
+      const groupUsers = users.filter(u => u.group === g);
+      const groupReports = reports.filter(r => userGroups.get(r.userId) === g);
+      const totalPointsCount = groupReports.reduce((sum, r) => sum + r.total, 0);
+      const avgPoints = groupUsers.length ? Math.round(totalPointsCount / groupUsers.length) : 0;
+      return { name: g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`, points: totalPointsCount, avg: avgPoints, members: groupUsers.length };
+    });
+  }, [users, reports]);
 
   // Revenue levels distribution
   const giverLevelsCount = Array(KPI_LEVELS.GIVER.length).fill(0);
@@ -1839,24 +1846,24 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
     }
   });
 
-  const giverChartData = KPI_LEVELS.GIVER.map((l, i) => ({ name: l.label, value: giverLevelsCount[i] })).filter(d => d.value > 0);
-  const receiverChartData = KPI_LEVELS.RECEIVER.map((l, i) => ({ name: l.label, value: receiverLevelsCount[i] })).filter(d => d.value > 0);
+  const giverChartData = useMemo(() => KPI_LEVELS.GIVER.map((l, i) => ({ name: l.label, value: giverLevelsCount[i] })).filter(d => d.value > 0), [giverLevelsCount]);
+  const receiverChartData = useMemo(() => KPI_LEVELS.RECEIVER.map((l, i) => ({ name: l.label, value: receiverLevelsCount[i] })).filter(d => d.value > 0), [receiverLevelsCount]);
 
   // Top 5 members overall
-  const topMembers = [...userScores].sort((a, b) => b.totalScore - a.totalScore).slice(0, 5);
+  const topMembers = useMemo(() => [...userScores].sort((a, b) => b.totalScore - a.totalScore).slice(0, 5), [userScores]);
 
   // Recent Activity
-  const recentReports = [...reports].sort((a, b) => {
+  const recentReports = useMemo(() => [...reports].sort((a, b) => {
     const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
     const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
     return dateB.getTime() - dateA.getTime();
-  }).slice(0, 5);
+  }).slice(0, 5), [reports]);
 
-  const recentGuests = [...guests].sort((a, b) => {
+  const recentGuests = useMemo(() => [...guests].sort((a, b) => {
     const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
     const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
     return dateB.getTime() - dateA.getTime();
-  }).slice(0, 5);
+  }).slice(0, 5), [guests]);
 
   return (
     <div className="space-y-6">
@@ -3816,6 +3823,7 @@ export default function App() {
     let reportsUnsub: (() => void) | null = null;
     let meetingsUnsub: (() => void) | null = null;
     let guestsUnsub: (() => void) | null = null;
+    let summariesUnsub: (() => void) | null = null;
 
     const handleAuthState = async (u: User | null) => {
       console.log("Current Database ID:", firebaseConfig.firestoreDatabaseId);
@@ -3826,6 +3834,7 @@ export default function App() {
       if (reportsUnsub) reportsUnsub();
       if (meetingsUnsub) meetingsUnsub();
       if (guestsUnsub) guestsUnsub();
+      if (summariesUnsub) summariesUnsub();
 
       if (u) {
         setLoginError(null);
@@ -3886,7 +3895,7 @@ export default function App() {
             handleFirestoreError(error, OperationType.GET, 'guests');
           });
 
-          onSnapshot(collection(db, 'monthly_summaries'), (snap) => {
+          summariesUnsub = onSnapshot(collection(db, 'monthly_summaries'), (snap) => {
             setMonthlySummaries(snap.docs.map(d => ({ id: d.id, ...d.data() } as MonthlySummary)));
           }, (error) => {
             handleFirestoreError(error, OperationType.GET, 'monthly_summaries');
@@ -3953,6 +3962,7 @@ export default function App() {
       if (reportsUnsub) reportsUnsub();
       if (meetingsUnsub) meetingsUnsub();
       if (guestsUnsub) guestsUnsub();
+      if (summariesUnsub) summariesUnsub();
     };
   }, []);
 
