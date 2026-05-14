@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { 
   auth, db 
 } from './firebase';
@@ -84,8 +84,7 @@ import {
   Eye,
   HelpCircle,
   Github,
-  Rocket,
-  CheckCircle2
+  Rocket
 } from 'lucide-react';
 import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, MonthlySummary } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -275,12 +274,13 @@ const KPI_THRESHOLD = 25;
 
 // --- Components ---
 
-function Header({ user, onLogout, notifications, onShowNotifications, onShowGuide }: { 
+function Header({ user, onLogout, notifications, onShowNotifications, onShowGuide, onRefresh }: { 
   user: UserProfile | null, 
   onLogout: () => void,
   notifications: AppNotification[],
   onShowNotifications: () => void,
-  onShowGuide: () => void
+  onShowGuide: () => void,
+  onRefresh: () => void
 }) {
   return (
     <header className="bg-white border-b border-gray-100 sticky top-0 z-30 shadow-sm">
@@ -326,9 +326,24 @@ function Header({ user, onLogout, notifications, onShowNotifications, onShowGuid
               </button>
             </div>
             <div className="hidden md:block text-right">
-              <p className="text-sm font-semibold text-gray-900">{user.representative}</p>
-              <p className="text-xs text-gray-500">{user.companyName}</p>
+              <p className="text-sm font-black text-gray-900 leading-tight">{user.representative}</p>
+              <div className="flex items-center justify-end gap-2 mt-0.5">
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider",
+                  user.role === 'admin' ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
+                )}>
+                  {user.role}
+                </span>
+                <p className="text-[10px] text-gray-500 font-medium">{user.companyName}</p>
+              </div>
             </div>
+            <button 
+              onClick={onRefresh}
+              className="p-2.5 bg-gray-50 text-gray-400 rounded-2xl hover:bg-gray-100 hover:text-blue-600 transition-all border border-gray-100 shadow-sm"
+              title="Tải lại trang"
+            >
+              <RefreshCcw size={18} />
+            </button>
             <button 
               onClick={onLogout}
               className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors rounded-lg"
@@ -461,7 +476,7 @@ function ImageEvidenceInput({
   );
 }
 
-function KPIInput({ userId, isAdmin, onComplete, existingReport, reports, users }: { userId: string, isAdmin: boolean, onComplete: () => void, existingReport?: KPIReport, reports: KPIReport[], users: UserProfile[] }) {
+const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, users }: { userId: string, isAdmin: boolean, onComplete: () => void, existingReport?: KPIReport, reports: KPIReport[], users: UserProfile[] }) => {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -1230,9 +1245,9 @@ function KPIInput({ userId, isAdmin, onComplete, existingReport, reports, users 
       </form>
     </div>
   );
-}
+});
 
-function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEditReport, monthlySummaries }: { 
+const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, onEditReport, monthlySummaries }: { 
   users: UserProfile[], 
   reports: KPIReport[], 
   meetings: Meeting[], 
@@ -1241,7 +1256,7 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
   onReset: () => void, 
   onEditReport: (r: KPIReport) => void,
   monthlySummaries: MonthlySummary[]
-}) {
+}) => {
   const [activeGroup, setActiveGroup] = useState<number | 'all'>('all');
   const [viewMode, setViewMode] = useState<'leaderboard' | 'summary' | 'members' | 'dashboard' | 'reports' | 'meetings' | 'guests' | 'memberDetail' | 'my-reports'>('leaderboard');
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
@@ -1424,35 +1439,41 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
   };
   // ... end helpers ...
 
-  const userScores = isCurrentMonth 
-    ? users.map(user => {
-        const userReports = reports.filter(r => r.userId === user.uid);
-        const scoreData = calculateMonthlyScore(userReports, reports);
-        return { 
-          uid: user.uid,
-          representative: user.representative,
-          companyName: user.companyName,
-          group: user.group,
-          totalScore: scoreData.total, 
-          bonusNextMonth: scoreData.bonusNextMonth, 
-          cashBonus: scoreData.cashBonus 
-        };
-      })
-    : monthlySummaries.filter(s => s.monthKey === selectedMonth).map(s => ({
-        uid: s.userId,
-        representative: s.representative,
-        companyName: s.companyName,
-        group: s.group,
-        totalScore: s.totalScore,
-        bonusNextMonth: s.bonusNextMonth,
-        cashBonus: s.cashBonus
-      }));
+  const userScores = useMemo(() => {
+    return isCurrentMonth 
+      ? users.map(user => {
+          const userReports = reports.filter(r => r.userId === user.uid);
+          const scoreData = calculateMonthlyScore(userReports, reports);
+          return { 
+            uid: user.uid,
+            representative: user.representative,
+            companyName: user.companyName,
+            group: user.group,
+            totalScore: scoreData.total, 
+            bonusNextMonth: scoreData.bonusNextMonth, 
+            cashBonus: scoreData.cashBonus 
+          };
+        })
+      : monthlySummaries.filter(s => s.monthKey === selectedMonth).map(s => ({
+          uid: s.userId,
+          representative: s.representative,
+          companyName: s.companyName,
+          group: s.group,
+          totalScore: s.totalScore,
+          bonusNextMonth: s.bonusNextMonth,
+          cashBonus: s.cashBonus
+        }));
+  }, [isCurrentMonth, users, reports, monthlySummaries, selectedMonth]);
 
-  const filteredUsers = activeGroup === 'all' 
-    ? userScores 
-    : userScores.filter(u => u.group === activeGroup);
+  const filteredUsers = useMemo(() => {
+    return activeGroup === 'all' 
+      ? userScores 
+      : userScores.filter(u => u.group === activeGroup);
+  }, [userScores, activeGroup]);
 
-  const sortedUsers = [...filteredUsers].sort((a, b) => b.totalScore - a.totalScore);
+  const sortedUsers = useMemo(() => {
+    return [...filteredUsers].sort((a, b) => b.totalScore - a.totalScore);
+  }, [filteredUsers]);
   
   // Available months logic
   const availableMonths = [
@@ -3710,11 +3731,64 @@ function Leaderboard({ users, reports, meetings, guests, isAdmin, onReset, onEdi
       )}
     </div>
   );
+});
+
+function SystemStatus({ isAdmin, dbConnected, dbError }: { isAdmin: boolean, dbConnected: boolean, dbError: string | null }) {
+  if (!isAdmin || (dbConnected && !dbError)) return null;
+
+  return (
+    <div className={cn(
+      "mb-6 p-4 rounded-3xl border flex items-center justify-between transition-all",
+      dbConnected ? "bg-green-50 border-green-100" : "bg-red-50 border-red-100 animate-pulse"
+    )}>
+      <div className="flex items-center gap-3">
+        <div className={cn(
+          "w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg",
+          dbConnected ? "bg-green-600 text-white" : "bg-red-600 text-white"
+        )}>
+          {dbConnected ? <ShieldCheck size={24} /> : <AlertTriangle size={24} />}
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="font-black text-gray-900 leading-tight">Admin System Check</p>
+            <span className={cn(
+              "px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider",
+              dbConnected ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+            )}>
+              {dbConnected ? "Connected" : "Permission Denied"}
+            </span>
+          </div>
+          <p className="text-[10px] text-gray-600 font-bold mt-1">
+            Database ID: <code className="bg-gray-100 px-1 rounded text-red-600 break-all">{firebaseConfig.firestoreDatabaseId}</code>
+          </p>
+          {dbError && <p className="text-[9px] text-red-500 mt-1 font-medium italic">!! {dbError} !!</p>}
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <a 
+          href={`https://console.firebase.google.com/project/kpissonghan/firestore/databases/${firebaseConfig.firestoreDatabaseId}/rules`}
+          target="_blank"
+          rel="noreferrer"
+          className="px-3 py-2 bg-blue-600 text-white text-[10px] font-bold rounded-xl hover:bg-blue-700 transition-colors text-center shadow-md shadow-blue-100"
+        >
+          Mở trang Rules
+        </a>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-3 py-2 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-xl hover:bg-gray-200"
+        >
+          Thử lại (F5)
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [dbConnected, setDbConnected] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const isAdmin = user?.email === 'thienkhoatgk@gmail.com' || user?.email === 'queenkily@gmail.com';
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -3759,6 +3833,15 @@ export default function App() {
         localStorage.removeItem('kpi_pending_redirect');
         
         try {
+          // Check connection
+          try {
+            await getDocFromServer(doc(db, 'test', 'connection')).catch(() => {});
+            setDbConnected(true);
+            setDbError(null);
+          } catch (e) {
+            // Silently fail, we'll see it through listeners
+          }
+
           const docRef = doc(db, 'users', u.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
@@ -3775,7 +3858,13 @@ export default function App() {
           // Attach listeners only when authenticated
            usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
             setUsers(snap.docs.map(d => d.data() as UserProfile));
+            setDbConnected(true);
+            setDbError(null);
           }, (error) => {
+            if (error.message.includes('permission')) {
+              setDbError('Lỗi Permission Rules');
+              setDbConnected(false);
+            }
             handleFirestoreError(error, OperationType.GET, 'users');
           });
 
@@ -3948,6 +4037,10 @@ export default function App() {
     }
   }
 
+  const handleRefresh = () => {
+    window.location.reload();
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -4011,60 +4104,47 @@ export default function App() {
             <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-left">
               <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
               <div>
-                <p className="text-xs text-red-700 font-bold mb-1">Cảnh báo đăng nhập:</p>
-                <p className="text-[11px] text-red-700 leading-relaxed">{loginError}</p>
-                <div className="mt-2 text-[10px] text-red-600 space-y-1 italic">
-                  <p>• Đảm bảo trình duyệt không chặn "Third-party Cookies".</p>
-                  <p>• Nếu vẫn lỗi, hãy thử dùng trình duyệt khác hoặc ẩn danh.</p>
-                </div>
+                <p className="text-xs text-red-700 font-bold mb-1">Lỗi đăng nhập:</p>
+                <p className="text-[11px] text-red-700 leading-relaxed font-medium">{loginError}</p>
               </div>
             </div>
           )}
 
-          <div className="mt-8 p-4 bg-green-50 border border-green-100 rounded-2xl text-left">
-            <h4 className="text-xs font-black text-[#065f46] uppercase mb-2 flex items-center gap-2">
-              <ShieldCheck size={14} /> TRẠNG THÁI: SẴN SÀNG BÀN GIAO (100%)
-            </h4>
-            <div className="space-y-3 text-[11px] text-green-800 leading-relaxed">
-              <div className="bg-white p-3 rounded-lg border border-green-200 shadow-sm shadow-green-100">
-                <p className="font-bold text-green-700 mb-1 flex items-center gap-1">
-                  <CheckCircle2 size={14} /> 1. THANH TOÁN (BILLING): ĐÃ XONG
-                </p>
-                <p className="text-[10px] text-gray-700">Dự án đã được nâng cấp lên gói Blaze. Mọi dịch vụ đã sẵn sàng.</p>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-purple-200 shadow-sm">
-                <p className="font-bold text-purple-700 mb-1 flex items-center gap-1">
-                  <Github size={14} /> 2. QUAN TRỌNG: ĐẨY CODE LÊN GITHUB
-                </p>
-                <div className="text-[10px] text-gray-700 space-y-1">
-                  <p>• Nhấn <b>Menu (3 gạch)</b> &gt; <b>Export to GitHub</b> &gt; Chọn <b>"KPIs-HoiSongHan"</b> (Vì AI Studio đang kết nối repo này).</p>
-                  <p>• Nếu bạn muốn dùng <i>KPIsSongHan</i>, hãy nhấn "Disconnect" trong phần GitHub của AI Studio và kết nối lại.</p>
+          {isAdmin && (
+            <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl text-left">
+              <h4 className="text-xs font-black text-blue-800 uppercase mb-3 flex items-center gap-2">
+                <ShieldCheck size={14} /> GHI CHÚ QUẢN TRỊ VIÊN
+              </h4>
+              <div className="space-y-4">
+                <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
+                  <p className="font-bold text-blue-700 text-[11px] mb-3 flex items-center gap-1">
+                    <Github size={14} /> HƯỚNG DẪN KẾT NỐI GITHUB & HOSTING
+                  </p>
+                  <div className="space-y-3 text-[10px] text-gray-700 font-medium">
+                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="font-bold text-blue-800 mb-1">Bước 1: Link Code</p>
+                      <p>Nhấn vào <b>Menu (3 gạch)</b> &gt; <b>Export to GitHub</b> &gt; Chọn Repo <b>"KPIs-HoiSongHan"</b>.</p>
+                    </div>
+                    
+                    <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
+                      <p className="font-bold text-purple-800 mb-1">Bước 2: Link Hosting & Fix Lỗi</p>
+                      <p>Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Settings.</p>
+                      <p className="text-red-700 mt-1 font-bold">!! SỬA LỖI: Tại mục "Root Directory", hãy xóa đường dẫn ổ đĩa D:\... và đổi thành "/" !!</p>
+                    </div>
+
+                    <div className="p-3 bg-green-50 rounded-xl border border-green-100">
+                      <p className="font-bold text-green-800 mb-1">Bước 3: Tận hưởng</p>
+                      <p>Từ nay, cứ nhấn "Export to GitHub" là web <span className="text-blue-600 font-bold">kpissonghan.online</span> tự động cập nhật!</p>
+                    </div>
+                    
+                    <a href="/HUONG_DAN_VAN_HANH.md" className="block text-center py-2 bg-white border border-gray-200 rounded-lg text-blue-600 font-bold hover:bg-gray-50 transition-colors">
+                      Xem hướng dẫn chi tiết (File HD)
+                    </a>
+                  </div>
                 </div>
               </div>
-              <div className="bg-white p-3 rounded-lg border border-red-200 shadow-sm animate-pulse">
-                <p className="font-bold text-red-700 mb-1 flex items-center gap-1">
-                  <AlertTriangle size={14} /> LỖI PERMISSION? (QUAN TRỌNG)
-                </p>
-                <div className="space-y-1 text-[10px] text-gray-700">
-                  <p>1. <a href={`https://console.firebase.google.com/project/kpissonghan/firestore/databases/${firebaseConfig.firestoreDatabaseId}/rules`} target="_blank" rel="noreferrer" className="text-blue-600 font-bold underline">NHẤN VÀO ĐÂY</a> để mở đúng trang Rules.</p>
-                  <p className="bg-yellow-100 p-1 font-bold">2. CHỌN ĐÚNG DATABASE: Nếu thấy chữ "(default)", hãy đổi sang ID bắt đầu bằng "ai-studio..."</p>
-                  <p>3. Nếu thấy nút <b>Publish</b> (Xuất bản) hiện lên, hãy nhấn nó.</p>
-                  <p>4. F5 tải lại trang này sau 1 phút.</p>
-                </div>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-blue-200 shadow-sm shadow-blue-100">
-                <p className="font-bold text-blue-700 mb-1 flex items-center gap-1">
-                  <Rocket size={14} /> 3. HƯỚNG DẪN BẢNG "TẠO BẢN TRIỂN KHAI"
-                </p>
-                <div className="text-[10px] text-gray-700 space-y-1">
-                  <p>• <b>Chi nhánh:</b> Giữ nguyên <code className="bg-gray-100 px-1">main</code>.</p>
-                  <p>• <b>Cam kết triển khai:</b> Chọn dòng đầu tiên <b>"Lần cập nhật cuối cùng"</b> (Để không phải nhập ID).</p>
-                  <p>• Nhấn nút <b>Tạo nên</b> để bắt đầu chạy web.</p>
-                </div>
-              </div>
-              <p className="italic opacity-80 text-[10px] text-center">* Chúc mừng! Website sẽ hoạt động chính thức sau khi bạn thực hiện 2 bước trên.</p>
             </div>
-          </div>
+          )}
           
           <p className="mt-8 text-xs text-gray-400 font-medium italic">Hệ thống quản lý KPI nội bộ</p>
           
@@ -4080,6 +4160,8 @@ export default function App() {
   }
 
   if (isNewUser) {
+    const isAdminEmail = user?.email === 'thienkhoatgk@gmail.com' || user?.email === 'queenkily@gmail.com';
+    
     return (
       <div className="min-h-screen bg-gray-50 p-4 flex items-center justify-center">
         <motion.div 
@@ -4087,7 +4169,22 @@ export default function App() {
           animate={{ opacity: 1, scale: 1 }}
           className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-gray-100"
         >
-          <h2 className="text-2xl font-black text-gray-900 mb-6">Đăng ký thành viên</h2>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+              <UserPlus size={24} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-gray-900 leading-tight">Đăng ký {isAdminEmail ? 'Admin' : 'Hội viên'}</h2>
+              <p className="text-xs text-gray-500 font-medium">Chào mừng bạn gia nhập hệ thống KPI</p>
+            </div>
+          </div>
+
+          {isAdminEmail && (
+            <div className="mb-6 p-3 bg-blue-50 border border-blue-100 rounded-2xl text-[11px] text-blue-700 font-medium leading-relaxed">
+              Bạn đang đăng nhập bằng email Admin. Hãy điền thông tin bên dưới để hoàn tất khởi tạo tài khoản quản trị.
+            </div>
+          )}
+
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-sm font-bold text-gray-700">Tên công ty</label>
@@ -4119,18 +4216,20 @@ export default function App() {
                 onChange={e => setRegistrationData(prev => ({ ...prev, phone: e.target.value }))}
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-gray-700">Nhóm</label>
-              <select 
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                value={registrationData.group}
-                onChange={e => setRegistrationData(prev => ({ ...prev, group: parseInt(e.target.value) as 1 | 2 | 3 }))}
-              >
-                <option value={1}>Nhóm 1</option>
-                <option value={2}>Nhóm 2</option>
-                <option value={3}>Nhóm 3</option>
-              </select>
-            </div>
+            {!isAdminEmail && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-gray-700">Nhóm</label>
+                <select 
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  value={registrationData.group}
+                  onChange={e => setRegistrationData(prev => ({ ...prev, group: parseInt(e.target.value) as 1 | 2 | 3 }))}
+                >
+                  <option value={1}>Nhóm 1</option>
+                  <option value={2}>Nhóm 2</option>
+                  <option value={3}>Nhóm 3</option>
+                </select>
+              </div>
+            )}
             <button className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 mt-4">
               Hoàn tất đăng ký
             </button>
@@ -4148,9 +4247,12 @@ export default function App() {
         notifications={notifications}
         onShowNotifications={() => setShowNotifications(true)}
         onShowGuide={() => setShowGuide(true)}
+        onRefresh={handleRefresh}
       />
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <SystemStatus isAdmin={isAdmin} dbConnected={dbConnected} dbError={dbError} />
+        
         {/* Notification Banner */}
         <AnimatePresence>
           {notifications.map(notification => (
