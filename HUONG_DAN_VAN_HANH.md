@@ -35,6 +35,7 @@
 | Lỗi | Nguyên nhân | Cách xử lý |
 |---|---|---|
 | **Invalid Root Directory** | Điền sai đường dẫn ổ đĩa vào Firebase | Vào Backend Settings > Đổi Root Directory thành `/` |
+| **Requires configuration** | Đã thêm tên miền nhưng chưa trỏ DNS | Click vào chữ này, lấy các bản ghi A/TXT rồi dán vào trang quản lý tên miền (iNet). |
 | **Site Not Found** | DNS chưa cập nhật hoặc cấu hình sai | Kiểm tra lại 3 bản ghi A, TXT, CNAME. |
 
 ## 3. Quy trình Duyệt & Thông báo (Mới)

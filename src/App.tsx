@@ -4120,41 +4120,41 @@ export default function App() {
             </div>
           )}
 
-          {isAdmin && (
-            <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl text-left">
-              <h4 className="text-xs font-black text-blue-800 uppercase mb-3 flex items-center gap-2">
-                <ShieldCheck size={14} /> GHI CHÚ QUẢN TRỊ VIÊN
-              </h4>
-              <div className="space-y-4">
-                <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
-                  <p className="font-bold text-blue-700 text-[11px] mb-3 flex items-center gap-1">
-                    <Github size={14} /> HƯỚNG DẪN KẾT NỐI GITHUB & HOSTING
-                  </p>
-                  <div className="space-y-3 text-[10px] text-gray-700 font-medium">
-                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                      <p className="font-bold text-blue-800 mb-1">Bước 1: Link Code</p>
-                      <p>Nhấn vào <b>Menu (3 gạch)</b> &gt; <b>Export to GitHub</b> &gt; Chọn Repo <b>"KPIs-HoiSongHan"</b>.</p>
-                    </div>
-                    
-                    <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
-                      <p className="font-bold text-purple-800 mb-1">Bước 2: Link Hosting & Fix Lỗi</p>
-                      <p>Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Settings.</p>
-                      <p className="text-red-700 mt-1 font-bold">!! SỬA LỖI: Tại mục "Root Directory", hãy xóa đường dẫn ổ đĩa D:\... và đổi thành "/" !!</p>
-                    </div>
+          {/* Hướng dẫn triển khai cho Quản trị viên */}
+          <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl text-left">
+            <h4 className="text-xs font-black text-blue-800 uppercase mb-3 flex items-center gap-2">
+              <ShieldCheck size={14} /> HƯỚNG DẪN TRIỂN KHAI (Dành cho Admin)
+            </h4>
+            <div className="space-y-4">
+              <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
+                <p className="font-bold text-blue-700 text-[11px] mb-3 flex items-center gap-1">
+                  <ExternalLink size={14} /> 1. FIX LỖI ĐĂNG NHẬP (Lưu ý quan trọng)
+                </p>
+                <div className="space-y-2 text-[10px] text-gray-700 font-medium font-serif leading-relaxed">
+                  <p>Nếu bấm nút đăng nhập mà không có phản hồi hoặc báo lỗi "Unauthorized":</p>
+                  <p>1. Copy tên miền này: <code className="bg-gray-100 px-1 font-mono">{window.location.hostname}</code></p>
+                  <p>2. Vào <a href="https://console.firebase.google.com/project/kpissonghan/authentication/settings" target="_blank" className="text-blue-600 underline">Firebase Auth Settings</a> &gt; <b>Authorized Domains</b>.</p>
+                  <p>3. Chọn <b>Add Domain</b> &gt; Dán tên miền vừa copy vào và nhấn Save.</p>
+                </div>
+              </div>
 
-                    <div className="p-3 bg-green-50 rounded-xl border border-green-100">
-                      <p className="font-bold text-green-800 mb-1">Bước 3: Tận hưởng</p>
-                      <p>Từ nay, cứ nhấn "Export to GitHub" là web <span className="text-blue-600 font-bold">kpissonghan.online</span> tự động cập nhật!</p>
-                    </div>
-                    
-                    <a href="/HUONG_DAN_VAN_HANH.md" className="block text-center py-2 bg-white border border-gray-200 rounded-lg text-blue-600 font-bold hover:bg-gray-50 transition-colors">
-                      Xem hướng dẫn chi tiết (File HD)
-                    </a>
+              <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
+                <p className="font-bold text-blue-700 text-[11px] mb-3 flex items-center gap-1">
+                  <Github size={14} /> 2. ĐƯA LÊN TÊN MIỀN ONLINE
+                </p>
+                <div className="space-y-3 text-[10px] text-gray-700 font-medium">
+                  <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                    <p className="font-bold text-blue-800 mb-1">A. Export Code</p>
+                    <p>Nhấn vào <b>Menu (3 gạch)</b> trái trên &gt; <b>Export to GitHub</b> &gt; Chọn Repo <b>"KPIs-HoiSongHan"</b>.</p>
+                  </div>
+                  <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
+                    <p className="font-bold text-purple-800 mb-1">B. Kết nối Hosting</p>
+                    <p>Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Click Backend &gt; <b>Domains</b> &gt; Làm theo hướng dẫn trỏ DNS tại iNet.</p>
                   </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
           
           <p className="mt-8 text-xs text-gray-400 font-medium italic">Hệ thống quản lý KPI nội bộ</p>
           
