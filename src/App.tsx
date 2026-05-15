@@ -3856,36 +3856,37 @@ export default function App() {
       if (guestsUnsub) guestsUnsub();
       if (summariesUnsub) summariesUnsub();
 
-      if (u) {
-        setLoginError(null);
-        // Clear redirect flagging
-        localStorage.removeItem('kpi_pending_redirect');
-        
-        try {
-          // Check connection
+      try {
+        if (u) {
+          setLoginError(null);
+          // Clear redirect flagging
+          localStorage.removeItem('kpi_pending_redirect');
+          
+          // Test connection in background, don't block handleAuthState
+          getDocFromServer(doc(db, 'test', 'connection'))
+            .then(() => {
+              setDbConnected(true);
+              setDbError(null);
+            })
+            .catch(() => {
+              // Silently fail connection test, real errors handled by listeners
+            });
+
           try {
-            await getDocFromServer(doc(db, 'test', 'connection')).catch(() => {});
-            setDbConnected(true);
-            setDbError(null);
-          } catch (e) {
-            // Silently fail, we'll see it through listeners
+            const docRef = doc(db, 'users', u.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              setProfile(docSnap.data() as UserProfile);
+              setIsNewUser(false);
+            } else {
+              setIsNewUser(true);
+            }
+          } catch (err: any) {
+            handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
           }
 
-          const docRef = doc(db, 'users', u.uid);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
-            setIsNewUser(false);
-          } else {
-            setIsNewUser(true);
-          }
-        } catch (err: any) {
-          handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
-        }
-
-        try {
           // Attach listeners only when authenticated
-           usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
+          usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
             setUsers(snap.docs.map(d => d.data() as UserProfile));
             setDbConnected(true);
             setDbError(null);
@@ -3920,24 +3921,24 @@ export default function App() {
           }, (error) => {
             handleFirestoreError(error, OperationType.GET, 'monthly_summaries');
           });
-
-        } catch (err) {
-          console.error("Error fetching profile:", err);
+        } else {
+          setProfile(null);
+          setUsers([]);
+          setReports([]);
+          setMeetings([]);
+          setGuests([]);
+          setIsNewUser(false);
+          
+          if (localStorage.getItem('kpi_pending_redirect')) {
+            setLoginError("Không thể hoàn tất đăng nhập. Vui lòng vào Cài đặt iPhone > Safari > Tắt 'Ngăn chặn theo dõi chéo trang' (Prevent Cross-Site Tracking) và thử lại.");
+            localStorage.removeItem('kpi_pending_redirect');
+          }
         }
-      } else {
-        setProfile(null);
-        setUsers([]);
-        setReports([]);
-        setMeetings([]);
-        setGuests([]);
-        
-        // Handle iOS/Safari cookie issues
-        if (localStorage.getItem('kpi_pending_redirect')) {
-          setLoginError("Không thể hoàn tất đăng nhập. Vui lòng vào Cài đặt iPhone > Safari > Tắt 'Ngăn chặn theo dõi chéo trang' (Prevent Cross-Site Tracking) và thử lại.");
-          localStorage.removeItem('kpi_pending_redirect');
-        }
+      } catch (err) {
+        console.error("Critical error in handleAuthState:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     // Initialize Auth handling securely
@@ -3950,12 +3951,16 @@ export default function App() {
         console.warn("Đang dùng WWW. Hãy đảm bảo 'www.kpissonghan.online' đã được thêm vào Authorized Domains.");
       }
 
+      // 2. Start Auth listener immediately
+      authUnsub = onAuthStateChanged(auth, handleAuthState);
+
+      // 3. Check for redirect result in background
       try {
-        // First check if there's a redirect result pending
         const result = await getRedirectResult(auth);
         if (result?.user) {
-          await handleAuthState(result.user);
-          return; // Skip onAuthStateChanged as we already handled it
+          // handleAuthState will naturally follow from onAuthStateChanged,
+          // but we can force update here if needed.
+          // Note: handleAuthState is already registered as a listener.
         }
       } catch (err: any) {
         console.error("Redirect check error:", err);
@@ -3969,9 +3974,6 @@ export default function App() {
         }
         setLoginError(msg);
       }
-
-      // Standard listener
-      authUnsub = onAuthStateChanged(auth, handleAuthState);
     };
 
     initializeAuth();
