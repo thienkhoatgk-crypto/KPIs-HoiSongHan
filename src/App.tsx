@@ -195,6 +195,7 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
       if (report.presenceStatus === 'present') weeklyScore += 5;
       if (report.presenceStatus === 'unexcused') weeklyScore -= 5;
       if (report.presenceStatus === 'late') weeklyScore -= 2;
+      // 'registered' and 'excused' are 0 points
 
       // 2. Indicators (Weekly logic)
       let indicatorsScore = 0;
@@ -469,7 +470,7 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
-    presenceStatus: existingReport?.presenceStatus || 'present' as 'present' | 'excused' | 'unexcused' | 'late',
+    presenceStatus: existingReport?.presenceStatus || 'present' as 'present' | 'excused' | 'unexcused' | 'late' | 'registered',
     infoCount: existingReport?.infoCount || 0,
     fbShares: existingReport?.fbShares || 0,
     oppCount: existingReport?.oppCount || 0,
@@ -555,6 +556,7 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
     if (formData.presenceStatus === 'present') score += 5;
     if (formData.presenceStatus === 'unexcused') score -= 5;
     if (formData.presenceStatus === 'late') score -= 2;
+    // 'registered' and 'excused' are 0 points
 
     // If it's the 5th week, only presence points are counted (as bonus)
     if (isFifthWeek) {
@@ -727,16 +729,17 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { id: 'present', label: 'Hiện diện (+5)', color: 'blue' },
+                  { id: 'late', label: 'Đi trễ (-2)', color: 'orange' },
                   { id: 'excused', label: 'Có phép (0đ)', color: 'gray' },
                   { id: 'unexcused', label: 'Không phép (-5)', color: 'red' },
-                  { id: 'late', label: 'Đi trễ (-2)', color: 'orange' }
+                  { id: 'registered', label: 'Đăng ký họp sáng mai', color: 'purple' }
                 ].map(opt => (
                   <button
                     key={opt.id}
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, presenceStatus: opt.id as any }))}
                     className={cn(
-                      "py-3 px-2 rounded-xl text-xs font-bold border transition-all",
+                      "py-3 px-2 rounded-xl text-xs font-bold border transition-all truncate",
                       formData.presenceStatus === opt.id 
                         ? `bg-${opt.color}-600 text-white border-transparent shadow-lg` 
                         : "bg-white text-gray-500 border-gray-100 hover:border-gray-300"
@@ -1144,18 +1147,17 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
     }
   };
 
-  if (alreadySubmitted && !isAdmin) {
+  const { isOpen } = getReportingStatus(new Date());
+
+  if (alreadySubmitted && !isAdmin && !isOpen) {
     return (
       <div className="text-center py-12 space-y-4">
         <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
           <CheckCircle2 size={40} />
         </div>
-        <h3 className="text-lg font-black text-gray-900">Báo cáo đã được gửi</h3>
+        <h3 className="text-lg font-black text-gray-900">Báo cáo đã chốt</h3>
         <p className="text-sm text-gray-500 max-w-xs mx-auto">
-          Bạn đã gửi báo cáo cho tuần này. Báo cáo đã được khóa để đảm bảo tính minh bạch.
-        </p>
-        <p className="text-xs text-gray-400 italic">
-          * Liên hệ Admin nếu bạn cần điều chỉnh thông tin sai sót.
+          Thời gian cập nhật báo cáo đã hết (Hạn chốt: 23:59 Thứ Hai hàng tuần).
         </p>
       </div>
     );
@@ -1244,7 +1246,7 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
   );
 });
 
-const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, onEditReport, monthlySummaries }: { 
+const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, onEditReport, monthlySummaries, currentUser, setEditingReport, setShowReportModal }: { 
   users: UserProfile[], 
   reports: KPIReport[], 
   meetings: Meeting[], 
@@ -1252,7 +1254,10 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
   isAdmin: boolean, 
   onReset: () => void, 
   onEditReport: (r: KPIReport) => void,
-  monthlySummaries: MonthlySummary[]
+  monthlySummaries: MonthlySummary[],
+  currentUser: User | null,
+  setEditingReport: (r: KPIReport | null) => void,
+  setShowReportModal: (b: boolean) => void
 }) => {
   const [activeGroup, setActiveGroup] = useState<number | 'all'>('all');
   const [viewMode, setViewMode] = useState<'leaderboard' | 'summary' | 'members' | 'dashboard' | 'reports' | 'meetings' | 'guests' | 'memberDetail' | 'my-reports'>('leaderboard');
@@ -2454,18 +2459,37 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
         </div>
       ) : viewMode === 'my-reports' ? (
         <div className="space-y-6">
-          <div className="flex items-center justify-between bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm gap-4">
             <div>
               <h3 className="text-lg font-black text-gray-900">Lịch sử báo cáo của tôi</h3>
               <p className="text-xs text-gray-500">Xem lại các chỉ tiêu bạn đã báo cáo trong tháng này</p>
             </div>
-            <button 
-              onClick={handleExportIndividualExcel}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
-            >
-              <Download size={16} />
-              Xuất Excel cá nhân
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={handleExportIndividualExcel}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
+              >
+                <Download size={16} />
+                Excel
+              </button>
+              {getReportingStatus(new Date()).isOpen && (
+                <button 
+                  onClick={() => {
+                    const currentWeekStr = `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 2 })}`;
+                    const existing = reports.find(r => r.userId === currentUser?.uid && r.week === currentWeekStr);
+                    if (existing) {
+                      setEditingReport(existing);
+                    } else {
+                      setEditingReport(null);
+                    }
+                    setShowReportModal(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+                >
+                  <PlusCircle size={16} /> Báo cáo mới/Cập nhật
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
@@ -4333,22 +4357,44 @@ export default function App() {
                 </div>
               </div>
               
-              {reports.some(r => r.userId === user.uid && r.week === `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 2 })}`) ? (
-                <div className="w-full py-4 bg-gray-100 text-gray-400 font-bold rounded-2xl flex items-center justify-center gap-2 cursor-not-allowed">
-                  <CheckCircle2 size={20} /> Đã báo cáo tuần này
-                </div>
-              ) : !isOpen && !isLastTuesday && profile?.role !== 'admin' ? (
-                <div className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-100">
-                  <Clock size={20} /> Đã hết hạn báo cáo
-                </div>
-              ) : (
-                <button 
-                  onClick={() => setShowReportModal(true)}
-                  className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
-                >
-                  <PlusCircle size={20} /> Báo cáo KPI tuần này
-                </button>
-              )}
+              {(() => {
+                const currentWeekStr = `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 2 })}`;
+                const existingReportForThisWeek = reports.find(r => r.userId === user.uid && r.week === currentWeekStr);
+                
+                if (existingReportForThisWeek) {
+                  return (
+                    <button 
+                      onClick={() => {
+                        setEditingReport(existingReportForThisWeek);
+                        setShowReportModal(true);
+                      }}
+                      className="w-full py-4 bg-amber-500 text-white font-bold rounded-2xl hover:bg-amber-600 transition-all shadow-lg shadow-amber-200 flex items-center justify-center gap-2"
+                    >
+                      <RefreshCcw size={20} /> Cập nhật báo cáo tuần này
+                    </button>
+                  );
+                }
+
+                if (!isOpen && !isLastTuesday && profile?.role !== 'admin') {
+                  return (
+                    <div className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-100">
+                      <Clock size={20} /> Đã hết hạn báo cáo
+                    </div>
+                  );
+                }
+
+                return (
+                  <button 
+                    onClick={() => {
+                      setEditingReport(null);
+                      setShowReportModal(true);
+                    }}
+                    className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                  >
+                    <PlusCircle size={20} /> Báo cáo KPI tuần này
+                  </button>
+                );
+              })()}
             </div>
 
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
@@ -4495,6 +4541,9 @@ export default function App() {
               guests={guests}
               isAdmin={isAdmin}
               monthlySummaries={monthlySummaries}
+              currentUser={user}
+              setEditingReport={setEditingReport}
+              setShowReportModal={setShowReportModal}
               onReset={() => {
                 // This state reset might be handled by Firestore listeners, but we can clear local state for immediate feedback
                 setReports([]);

@@ -18,7 +18,7 @@ export interface KPIReport {
   date: any; // Timestamp
   
   // Presence
-  presenceStatus: 'present' | 'excused' | 'unexcused' | 'late';
+  presenceStatus: 'present' | 'excused' | 'unexcused' | 'late' | 'registered';
   
   // Info
   infoCount: number;
