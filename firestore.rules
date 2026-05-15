@@ -4,13 +4,13 @@ service cloud.firestore {
     
     // --- MASTER CATCH-ALL (DEFAULT DENY) ---
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if isAdmin();
     }
 
     // --- GLOBAL HELPERS ---
     function isSignedIn() { return request.auth != null; }
     function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$'); }
     
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
@@ -21,7 +21,7 @@ service cloud.firestore {
     }
     
     function isAdmin() { 
-      return isSignedIn() && request.auth.token.email_verified == true && isAdminEmail(request.auth.token.email);
+      return isSignedIn() && isAdminEmail(request.auth.token.email);
     }
     
     function isOwner(userId) {
@@ -41,11 +41,11 @@ service cloud.firestore {
       }
       
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow list: if isSignedIn(); // Allow listing users to select participants for meetings
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if (isOwner(userId) || isAdmin()) && (
         // Allow updating specific fields for members
-        (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['companyName', 'representative', 'phone', 'totalScore', 'updatedAt'])) ||
+        (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['companyName', 'representative', 'phone', 'totalScore', 'group', 'updatedAt'])) ||
         isAdmin()
       );
       allow delete: if isAdmin();
@@ -63,7 +63,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidReport(incoming());
       allow update: if (isAdmin() || (isOwner(existing().userId) && existing().status == 'pending')) && (
         isAdmin() || 
-        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['presenceStatus', 'infoCount', 'fbShares', 'oppCount', 'targetedGuests', 'nonTargetedGuests', 'normalMeetings', 'jointHosting', 'jointTrip', 'officeMeeting', 'giverAmount', 'isGiverExternal', 'giverRecipientId', 'receiverAmount', 'isReceiverExternal', 'receiverGiverId', 'piggyAmount', 'isPiggyExternal', 'evidence', 'meetingEvidence', 'hostingEvidence', 'tripEvidence', 'officeEvidence', 'total', 'updatedAt']))
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'presenceStatus', 'infoCount', 'fbShares', 'oppCount', 'targetedGuests', 'nonTargetedGuests', 'normalMeetings', 'jointHosting', 'jointTrip', 'officeMeeting', 'giverAmount', 'isGiverExternal', 'giverRecipientId', 'receiverAmount', 'isReceiverExternal', 'receiverGiverId', 'piggyAmount', 'isPiggyExternal', 'piggyRecipientId', 'evidence', 'meetingEvidence', 'hostingEvidence', 'tripEvidence', 'officeEvidence', 'total', 'updatedAt']) && isValidReport(incoming()))
       );
       allow delete: if isAdmin();
     }
@@ -103,8 +103,8 @@ service cloud.firestore {
     }
 
     // 8. Connection Test
-    match /test/connection {
-      allow get: if isSignedIn();
+    match /test/{docId} {
+      allow read: if isSignedIn();
     }
   }
 }

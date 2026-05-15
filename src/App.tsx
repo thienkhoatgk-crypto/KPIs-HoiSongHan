@@ -99,6 +99,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
+import { AIChatBox } from './components/AIChatBox';
+
 // --- Error Handling ---
 enum OperationType {
   CREATE = 'create',
@@ -109,7 +111,7 @@ enum OperationType {
   WRITE = 'write',
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, shouldThrow = true) {
   const errInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -121,8 +123,25 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  if (shouldThrow) {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
+
+// --- Date Helper ---
+const parseFirestoreDate = (date: any): Date => {
+  if (!date) return new Date();
+  if (date instanceof Date) return date;
+  if (date.toDate && typeof date.toDate === 'function') return date.toDate();
+  if (typeof date === 'string' || typeof date === 'number') {
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
+  if (date.seconds !== undefined) {
+    return new Date(date.seconds * 1000);
+  }
+  return new Date();
+};
 
 // --- Helpers ---
 const isLastTuesdayOfMonth = (date: Date) => {
@@ -154,8 +173,8 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
 
   // Sort reports by date to identify weeks correctly
   const sortedReports = [...userReports].sort((a, b) => {
-    const dateA = a.date?.toDate ? a.date.toDate() : (a.date ? new Date(a.date) : new Date(0));
-    const dateB = b.date?.toDate ? b.date.toDate() : (b.date ? new Date(b.date) : new Date(0));
+    const dateA = parseFirestoreDate(a.date);
+    const dateB = parseFirestoreDate(b.date);
     return dateA.getTime() - dateB.getTime();
   });
 
@@ -468,6 +487,7 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
     receiverGiverId: existingReport?.receiverGiverId || '',
     piggyAmount: existingReport?.piggyAmount || 0,
     isPiggyExternal: existingReport?.isPiggyExternal || false,
+    piggyRecipientId: (existingReport as any)?.piggyRecipientId || '',
     bonusPoints: existingReport?.bonusPoints || 0,
     penaltyPoints: existingReport?.penaltyPoints || 0,
     meetingParticipantIds: existingReport?.meetingParticipantIds || [],
@@ -511,15 +531,15 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
     const currentMonthStr = format(new Date(), 'yyyy-MM');
     const userReports = reports.filter(r => {
       if (r.userId !== userId) return false;
-      const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
+      const d = parseFirestoreDate(r.date);
       return format(d, 'yyyy-MM') === currentMonthStr;
     });
 
     let isFifthWeek = false;
     if (existingReport) {
       const sorted = [...userReports].sort((a, b) => {
-        const dateA = a.date?.toDate ? a.date.toDate() : (a.date ? new Date(a.date) : new Date());
-        const dateB = b.date?.toDate ? b.date.toDate() : (b.date ? new Date(b.date) : new Date());
+        const dateA = parseFirestoreDate(a.date);
+        const dateB = parseFirestoreDate(b.date);
         return dateA.getTime() - dateB.getTime();
       });
       const index = sorted.findIndex(r => r.id === existingReport.id);
@@ -1015,11 +1035,11 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
 
                     {formData.piggyAmount > 0 && (
                       <select
-                        value={formData.receiverGiverId}
-                        onChange={e => setFormData(prev => ({ ...prev, receiverGiverId: e.target.value }))}
+                        value={formData.piggyRecipientId}
+                        onChange={e => setFormData(prev => ({ ...prev, piggyRecipientId: e.target.value }))}
                         className="w-full p-3 bg-white rounded-xl border border-gray-100 font-bold text-gray-900 outline-none focus:ring-2 focus:ring-orange-500 text-sm"
                       >
-                        <option value="">-- Chọn người trao doanh số --</option>
+                        <option value="">-- Chọn thành viên nhận được --</option>
                         {users.filter(u => u.uid !== userId).map(u => (
                           <option key={u.uid} value={u.uid}>{u.representative} ({u.companyName})</option>
                         ))}
@@ -1421,7 +1441,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
       ? users.map(user => {
           const userReports = reports.filter(r => {
             if (r.userId !== user.uid) return false;
-            const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
+            const d = parseFirestoreDate(r.date);
             return format(d, 'yyyy-MM') === selectedMonth;
           });
           const scoreData = calculateMonthlyScore(userReports, reports);
@@ -3834,22 +3854,28 @@ export default function App() {
               setDbConnected(true);
               setDbError(null);
             })
-            .catch(() => {
-              // Silently fail connection test, real errors handled by listeners
+            .catch((err) => {
+              console.error("Connection test error:", err);
+              // Don't set error message here to avoid spamming the UI if it's just a transient issue
+              // setDbError(`Connection Test Failed: ${err.message}`);
+              setDbConnected(false);
             });
 
-          try {
-            const docRef = doc(db, 'users', u.uid);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-              setProfile(docSnap.data() as UserProfile);
-              setIsNewUser(false);
-            } else {
-              setIsNewUser(true);
-            }
-          } catch (err: any) {
-            handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
-          }
+          // Fetch profile in background to avoid blocking other listeners
+          getDoc(doc(db, 'users', u.uid))
+            .then((docSnap) => {
+              if (docSnap.exists()) {
+                setProfile(docSnap.data() as UserProfile);
+                setIsNewUser(false);
+              } else {
+                setIsNewUser(true);
+              }
+            })
+            .catch((err) => {
+              console.error("User profile fetch error:", err);
+              setDbError(`Lỗi tải Profile: ${err.message}`);
+              handleFirestoreError(err, OperationType.GET, `users/${u.uid}`, false);
+            });
 
           // Attach listeners only when authenticated
           usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
@@ -3857,35 +3883,38 @@ export default function App() {
             setDbConnected(true);
             setDbError(null);
           }, (error) => {
-            if (error.message.includes('permission')) {
-              setDbError('Lỗi Permission Rules');
-              setDbConnected(false);
+            setDbError(error.message);
+            setDbConnected(false);
+            console.error("Users onSnapshot error:", error);
+            try {
+              handleFirestoreError(error, OperationType.GET, 'users');
+            } catch (e) {
+              // Avoid crashing the listener
             }
-            handleFirestoreError(error, OperationType.GET, 'users');
           });
 
           reportsUnsub = onSnapshot(collection(db, 'reports'), (snap) => {
             setReports(snap.docs.map(d => ({ id: d.id, ...d.data() } as KPIReport)));
           }, (error) => {
-            handleFirestoreError(error, OperationType.GET, 'reports');
+            handleFirestoreError(error, OperationType.LIST, 'reports', false);
           });
 
           meetingsUnsub = onSnapshot(collection(db, 'meetings'), (snap) => {
             setMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() } as Meeting)));
           }, (error) => {
-            handleFirestoreError(error, OperationType.GET, 'meetings');
+            handleFirestoreError(error, OperationType.LIST, 'meetings', false);
           });
 
           guestsUnsub = onSnapshot(collection(db, 'guests'), (snap) => {
             setGuests(snap.docs.map(d => ({ id: d.id, ...d.data() } as Guest)));
           }, (error) => {
-            handleFirestoreError(error, OperationType.GET, 'guests');
+            handleFirestoreError(error, OperationType.LIST, 'guests', false);
           });
 
           summariesUnsub = onSnapshot(collection(db, 'monthly_summaries'), (snap) => {
             setMonthlySummaries(snap.docs.map(d => ({ id: d.id, ...d.data() } as MonthlySummary)));
           }, (error) => {
-            handleFirestoreError(error, OperationType.GET, 'monthly_summaries');
+            handleFirestoreError(error, OperationType.LIST, 'monthly_summaries', false);
           });
         } else {
           setProfile(null);
@@ -4029,7 +4058,7 @@ export default function App() {
           type: 'warning',
           title: 'Cảnh báo hiệu suất KPI',
           message: `Điểm KPI tuần ${latestReport.week.split('-')[1]} của bạn là ${latestReport.total}, dưới mức mục tiêu ${KPI_THRESHOLD}. Hãy nỗ lực hơn nhé!`,
-          date: latestReport.date?.toDate ? latestReport.date.toDate() : new Date(latestReport.date)
+          date: parseFirestoreDate(latestReport.date)
         });
       }
     }
@@ -4297,9 +4326,9 @@ export default function App() {
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Điểm của bạn</p>
                   <p className="text-4xl font-black text-gray-900">
                     {calculateMonthlyScore(reports.filter(r => {
-                      const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
-                      return r.userId === user.uid && format(d, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
-                    }), reports).total}
+                    const d = parseFirestoreDate(r.date);
+                    return r.userId === user.uid && format(d, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
+                  }), reports).total}
                   </p>
                 </div>
               </div>
@@ -4366,12 +4395,12 @@ export default function App() {
               <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center justify-between">
                 <span className="flex items-center gap-2"><Calendar size={16} className="text-blue-600" /> Lịch họp sắp tới</span>
                 {meetings.filter(m => {
-                  const d = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                  const d = parseFirestoreDate(m.date);
                   return d >= new Date(new Date().setHours(0,0,0,0)) && (m.attendees.includes(user.uid) || m.attendees.length === 0);
                 }).length > 0 && (
                   <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
                     {meetings.filter(m => {
-                      const d = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                      const d = parseFirestoreDate(m.date);
                       return d >= new Date(new Date().setHours(0,0,0,0)) && (m.attendees.includes(user.uid) || m.attendees.length === 0);
                     }).length}
                   </span>
@@ -4380,12 +4409,12 @@ export default function App() {
               <div className="space-y-3">
                 {meetings
                   .filter(m => {
-                    const d = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                    const d = parseFirestoreDate(m.date);
                     return d >= new Date(new Date().setHours(0,0,0,0)) && (m.attendees.includes(user.uid) || m.attendees.length === 0);
                   })
                   .sort((a, b) => {
-                    const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-                    const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+                    const dateA = parseFirestoreDate(a.date);
+                    const dateB = parseFirestoreDate(b.date);
                     return dateA.getTime() - dateB.getTime();
                   })
                   .slice(0, 3)
@@ -4403,7 +4432,7 @@ export default function App() {
                     );
                   })}
                 {meetings.filter(m => {
-                  const d = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                  const d = parseFirestoreDate(m.date);
                   return d >= new Date(new Date().setHours(0,0,0,0)) && (m.attendees.includes(user.uid) || m.attendees.length === 0);
                 }).length === 0 && (
                   <p className="text-[10px] text-gray-400 italic text-center py-2">Không có lịch họp sắp tới</p>
@@ -4817,6 +4846,7 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+      <AIChatBox />
     </div>
   );
 }
