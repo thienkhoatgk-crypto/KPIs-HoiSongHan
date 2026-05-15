@@ -4159,8 +4159,10 @@ export default function App() {
                     <p>Nhấn vào <b>Menu (3 gạch)</b> trái trên &gt; <b>Export to GitHub</b> &gt; Chọn Repo <b>"KPIs-HoiSongHan"</b>.</p>
                   </div>
                   <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
-                    <p className="font-bold text-purple-800 mb-1">B. Kết nối Hosting</p>
-                    <p>Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Click Backend &gt; <b>Domains</b> &gt; Làm theo hướng dẫn trỏ DNS tại iNet.</p>
+                    <p className="font-bold text-purple-800 mb-1">B. Cấu hình DNS (Hostinger/iNet)</p>
+                    <p>1. Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Click Backend &gt; <b>Domains</b>.</p>
+                    <p>2. Bấm <b>"Requires configuration"</b> &gt; Copy các địa chỉ IP.</p>
+                    <p>3. Tại Hostinger: <b>Xóa</b> bản ghi A cũ (151.101.1.195) &gt; <b>Thêm</b> các bản ghi A mới với IP vừa copy (Tên: @).</p>
                   </div>
                 </div>
               </div>
