@@ -153,8 +153,8 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
 
   // Sort reports by date to identify weeks correctly
   const sortedReports = [...userReports].sort((a, b) => {
-    const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-    const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+    const dateA = a.date?.toDate ? a.date.toDate() : (a.date ? new Date(a.date) : new Date());
+    const dateB = b.date?.toDate ? b.date.toDate() : (b.date ? new Date(b.date) : new Date());
     return dateA.getTime() - dateB.getTime();
   });
 
@@ -1453,7 +1453,11 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
   const userScores = useMemo(() => {
     return isCurrentMonth 
       ? users.map(user => {
-          const userReports = reports.filter(r => r.userId === user.uid);
+          const userReports = reports.filter(r => {
+            if (r.userId !== user.uid) return false;
+            const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
+            return format(d, 'yyyy-MM') === selectedMonth;
+          });
           const scoreData = calculateMonthlyScore(userReports, reports);
           return { 
             uid: user.uid,
@@ -1798,7 +1802,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
       const userReports = reports.filter(r => r.userId === user.uid);
       const months = Array(12).fill(0).map((_, i) => {
         const monthReports = userReports.filter(r => {
-          const d = r.date?.toDate ? r.date.toDate() : new Date(r.date);
+          const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
           return d.getFullYear() === currentYear && d.getMonth() === i;
         });
         return calculateMonthlyScore(monthReports, reports).total;
@@ -1815,9 +1819,14 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
   
   const groupStats = useMemo(() => {
     const userGroups = new Map(users.map(u => [u.uid, u.group]));
+    const currentMonth = format(new Date(), 'yyyy-MM');
     return [0, 1, 2, 3].map(g => {
       const groupUsers = users.filter(u => u.group === g);
-      const groupReports = reports.filter(r => userGroups.get(r.userId) === g);
+      const groupReports = reports.filter(r => {
+        if (userGroups.get(r.userId) !== g) return false;
+        const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
+        return format(d, 'yyyy-MM') === currentMonth;
+      });
       const totalPointsCount = groupReports.reduce((sum, r) => sum + r.total, 0);
       const avgPoints = groupUsers.length ? Math.round(totalPointsCount / groupUsers.length) : 0;
       return { name: g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`, points: totalPointsCount, avg: avgPoints, members: groupUsers.length };
@@ -4320,7 +4329,7 @@ export default function App() {
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Điểm của bạn</p>
                   <p className="text-4xl font-black text-gray-900">
                     {calculateMonthlyScore(reports.filter(r => {
-                      const d = r.date?.toDate ? r.date.toDate() : new Date(r.date);
+                      const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
                       return r.userId === user.uid && format(d, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
                     }), reports).total}
                   </p>
