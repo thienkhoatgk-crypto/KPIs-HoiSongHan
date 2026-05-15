@@ -37,11 +37,11 @@ Nhiệm vụ của bạn là hỗ trợ các hội viên về các nội dung li
 
 --- QUY TRÌNH BÁO CÁO KPI & VẬN HÀNH ---
 1. Thời gian: 
-   - Hạn chót báo cáo tuần: 23h Thứ Hai hàng tuần.
-   - Thời gian hoạt động và nhập liệu: Thứ Tư đến Thứ Hai.
-   - Chốt số liệu & Họp định kỳ: 09:00 Thứ Ba hàng tuần.
+   - Hạn chót báo cáo/cập nhật tuần: 23:59 Thứ Hai hàng tuần. Báo cáo không bị khóa cho đến thời điểm này để thành viên có thể vào cập nhật nếu cần.
+   - Chốt số liệu & Họp định kỳ: Sáng Thứ Ba hàng tuần.
 2. Các phần chính trong báo cáo:
-   - Hiện diện (+5đ), Có phép (0đ), Không phép (-5đ), Đi trễ (-2đ).
+   - Hiện diện: Tham gia họp tuần (Hiện diện +5đ, Đi trễ -2đ, Có phép 0đ, Không phép -5đ).
+   - Đăng ký họp: Thêm mục "Đăng ký họp vào sáng mai" để BĐH biết số lượng thành viên tham gia họp sáng Thứ Ba.
    - Thông tin & MXH (Max 5đ/tháng): Ít nhất 3 thông tin HOẶC 4 lần chia sẻ FB bài viết của Hội.
    - Cơ hội (Referral, Max 20đ/tháng): 4đ/cơ hội.
    - Khách mời (Max 10đ/tháng): Đúng ngành (Targeted - 10đ), Khác (Non-targeted - 5đ).
@@ -80,13 +80,17 @@ export function AIChatBox() {
 
   const initChat = () => {
     if (!chatInstance.current && process.env.GEMINI_API_KEY) {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      chatInstance.current = ai.chats.create({
-        model: "gemini-3-flash-preview",
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-        },
-      });
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        chatInstance.current = ai.chats.create({
+          model: "gemini-3-flash-preview",
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+          },
+        });
+      } catch (error) {
+        console.error("AI Init Error:", error);
+      }
     }
   };
 
@@ -105,15 +109,20 @@ export function AIChatBox() {
     setIsLoading(true);
 
     try {
-      initChat();
+      if (!chatInstance.current) {
+        initChat();
+      }
+      
       if (!chatInstance.current) {
         throw new Error("Không thể khởi tạo AI Assistant. Vui lòng kiểm tra API Key.");
       }
 
       const response = await chatInstance.current.sendMessage({ message: input });
+      const text = response.text;
+      
       const aiResponse: Message = {
         role: 'model',
-        text: response.text || "Xin lỗi, tôi không thể trả lời lúc này.",
+        text: text || "Xin lỗi, tôi không thể trả lời lúc này.",
         id: (Date.now() + 1).toString(),
       };
       setMessages(prev => [...prev, aiResponse]);
