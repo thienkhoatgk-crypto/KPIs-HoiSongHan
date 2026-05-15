@@ -4159,10 +4159,14 @@ export default function App() {
                     <p>Nhấn vào <b>Menu (3 gạch)</b> trái trên &gt; <b>Export to GitHub</b> &gt; Chọn Repo <b>"KPIs-HoiSongHan"</b>.</p>
                   </div>
                   <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
-                    <p className="font-bold text-purple-800 mb-1">B. Cấu hình DNS (Hostinger/iNet)</p>
-                    <p>1. Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Click Backend &gt; <b>Domains</b>.</p>
-                    <p>2. Bấm <b>"Requires configuration"</b> &gt; Copy các địa chỉ IP.</p>
-                    <p>3. Tại Hostinger: <b>Xóa</b> bản ghi A cũ (151.101.1.195) &gt; <b>Thêm</b> các bản ghi A mới với IP vừa copy (Tên: @).</p>
+                    <p className="font-bold text-purple-800 mb-1">B. Cấu hình DNS (Hostinger)</p>
+                    <p>1. Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Backend &gt; <b>Domains</b>.</p>
+                    <p>2. Bấm <b>"To validate"</b> (Nút màu xanh) nếu đã đổi xong.</p>
+                    <p>3. Kiểm tra tại Hostinger các bản ghi này:</p>
+                    <ul className="list-disc ml-4 space-y-1 mt-1 text-blue-900">
+                      <li><b>Loại A:</b> Trỏ @ về <code className="bg-white px-1">199.36.158.100</code></li>
+                      <li><b>Loại TXT:</b> Trỏ @ về <code className="bg-white px-1">hosting-site=kpissonghan</code></li>
+                    </ul>
                   </div>
                 </div>
               </div>

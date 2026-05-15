@@ -36,8 +36,8 @@
 |---|---|---|
 | **Invalid Root Directory** | Điền sai đường dẫn ổ đĩa vào Firebase | Vào Backend Settings > Đổi Root Directory thành `/` |
 | **Compilation failed** | Sai cấu hình Build hoặc tên nhánh | Kiểm tra tab **Deployments** trong App Hosting, click vào build bị lỗi để xem Build Logs. Đảm bảo nhánh chính tên là `main`. |
-| **Requires configuration** | Đã thêm tên miền nhưng chưa trỏ DNS | Click vào chữ này, lấy các bản ghi A/TXT. Tại Hostinger: **Xóa** bản ghi A cũ (151.101.1.195) và **Thêm** các bản ghi A mới từ Firebase. |
-| **Site Not Found** | DNS chưa cập nhật hoặc cấu hình sai | Cần chờ 15p - 2h để DNS cập nhật. Kiểm tra lại các bản ghi A (Tên: @). |
+| **Requires configuration** | Đã thêm tên miền nhưng chưa trỏ DNS | Click vào chữ này, lấy bản ghi: Loại A -> `199.36.158.100`, loại TXT -> `hosting-site=kpissonghan`. |
+| **Site Not Found** | DNS chưa cập nhật hoặc cấu hình sai | Cần chờ 15p - 2h để DNS cập nhật. Kiểm tra xem đã **Xóa** các bản ghi cũ chưa. |
 
 ## 3. Quy trình Duyệt & Thông báo (Mới)
 - Khi Admin thay đổi trạng thái báo cáo sang **Approved (Đã duyệt)** hoặc **Rejected (Từ chối)**:
