@@ -115,6 +115,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
     },
     operationType,
     path
@@ -153,116 +154,74 @@ const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]
 
   // Sort reports by date to identify weeks correctly
   const sortedReports = [...userReports].sort((a, b) => {
-    const dateA = a.date?.toDate ? a.date.toDate() : (a.date ? new Date(a.date) : new Date());
-    const dateB = b.date?.toDate ? b.date.toDate() : (b.date ? new Date(b.date) : new Date());
+    const dateA = a.date?.toDate ? a.date.toDate() : (a.date ? new Date(a.date) : new Date(0));
+    const dateB = b.date?.toDate ? b.date.toDate() : (b.date ? new Date(b.date) : new Date(0));
     return dateA.getTime() - dateB.getTime();
   });
 
-  const isFiveWeekMonth = sortedReports.length >= 5;
-
-  let baseScore = 0;
-  let bonusPoints5thWeek = 0;
-  
-  let monthlyInfoCount = 0;
-  let monthlyFbShares = 0;
-  let monthlyOppCount = 0;
-  let monthlyTargetedGuests = 0;
-  let monthlyNonTargetedGuests = 0;
-  let monthlyNormalMeetings = 0;
-  let monthlyJointHosting = 0;
-  let monthlyJointTrip = 0;
-  let monthlyOfficeMeeting = 0;
-  let monthlyBusinessScore = 0;
-  let monthlyBonus = 0;
-  let monthlyPenalty = 0;
   let monthlyBonusNextMonth = 0;
   let monthlyCashBonus = 0;
-  let monthlyPresence4Weeks = 0;
-
-  // Track internal Giver-Receiver pairs
-  const internalPairs = new Map<string, { count: number, totalAmount: number, totalPiggy: number }>();
+  let bonusPoints5thWeek = 0;
+  
+  // Weekly calculated points
+  let totalPointsAccumulated = 0;
 
   sortedReports.forEach((report, index) => {
     const isFifthWeek = index >= 4;
 
     if (!isFifthWeek) {
-      // First 4 weeks logic
-      if (report.presenceStatus === 'present') monthlyPresence4Weeks += 5;
-      if (report.presenceStatus === 'unexcused') monthlyPresence4Weeks -= 5;
-      if (report.presenceStatus === 'late') monthlyPresence4Weeks -= 2;
+      let weeklyScore = 0;
+      
+      // 1. Presence
+      if (report.presenceStatus === 'present') weeklyScore += 5;
+      if (report.presenceStatus === 'unexcused') weeklyScore -= 5;
+      if (report.presenceStatus === 'late') weeklyScore -= 2;
 
-      monthlyInfoCount += report.infoCount || 0;
-      monthlyFbShares += report.fbShares || 0;
-      monthlyOppCount += report.oppCount || 0;
-      monthlyTargetedGuests += report.targetedGuests || 0;
-      monthlyNonTargetedGuests += report.nonTargetedGuests || 0;
-      monthlyNormalMeetings += report.normalMeetings || 0;
-      monthlyJointHosting += report.jointHosting || 0;
-      monthlyJointTrip += report.jointTrip || 0;
-      monthlyOfficeMeeting += report.officeMeeting || 0;
+      // 2. Indicators (Weekly logic)
+      let indicatorsScore = 0;
+      // Info & FB (Cap 5)
+      if ((report.infoCount || 0) >= 3 || (report.fbShares || 0) >= 4) indicatorsScore += 5;
+      
+      // Opportunities (Cap 20)
+      indicatorsScore += Math.min(20, (report.oppCount || 0) * 4);
+      
+      // Guests (Cap 10)
+      indicatorsScore += Math.min(10, ((report.targetedGuests || 0) * 10) + ((report.nonTargetedGuests || 0) * 5));
+      
+      // Meetings (Cap 10)
+      indicatorsScore += Math.min(10, ((report.normalMeetings || 0) * 1) + ((report.jointHosting || 0) * 4) + ((report.jointTrip || 0) * 4) + ((report.officeMeeting || 0) * 2));
 
-      // Business logic (simplified for reference, keeping existing depth)
-      let weeklyBusiness = 0;
-      if (report.giverAmount > 0 && report.giverRecipientId) {
-        const recipientReports = allReports.filter(r => r.userId === report.giverRecipientId);
-        const matchingPiggy = recipientReports.find(r => r.receiverGiverId === report.userId && r.week === report.week && r.piggyAmount > 0);
-        if (matchingPiggy) {
-          if (!report.isGiverExternal) {
-            const pairData = internalPairs.get(report.giverRecipientId) || { count: 0, totalAmount: 0, totalPiggy: 0 };
-            pairData.count += 1; pairData.totalAmount += report.giverAmount; pairData.totalPiggy += matchingPiggy.piggyAmount;
-            internalPairs.set(report.giverRecipientId, pairData);
-            if (pairData.count === 1) weeklyBusiness += report.giverAmount < 50000000 ? 5 : 10;
-            else if (pairData.count === 2 && pairData.totalAmount >= 50000000) weeklyBusiness += 5;
-            else if (pairData.count === 3 && pairData.totalPiggy >= 1000000) weeklyBusiness += 10;
-          } else {
-            if (report.giverAmount >= 1000000000) {
-              if (matchingPiggy.piggyAmount >= 5000000) {
-                weeklyBusiness += 15; monthlyCashBonus += 1000000;
-                monthlyBonusNextMonth += (report.giverAmount >= 5000000000 ? 30 : (report.giverAmount >= 2000000000 ? 10 : 5));
-              }
-            } else if (report.giverAmount >= 600000000) { if (matchingPiggy.piggyAmount >= 2000000) { weeklyBusiness += 15; monthlyBonusNextMonth += 5; } }
-            else if (report.giverAmount >= 300000000) { if (matchingPiggy.piggyAmount >= 1500000) weeklyBusiness += 15; }
-            else if (report.giverAmount >= 100000000) { if (matchingPiggy.piggyAmount >= 1000000) weeklyBusiness += 10; }
-          }
-        }
+      // 3. Business (Cap 35)
+      let businessScore = 0;
+      if (report.giverAmount > 0) {
+        if (!report.isGiverExternal) businessScore += report.giverAmount < 50000000 ? 5 : 10;
+        else businessScore += report.giverAmount < 300000000 ? 10 : 15;
       }
-      if (report.piggyAmount > 0 && report.receiverGiverId) {
-        if (!report.isPiggyExternal) {
-          const matchingGiver = allReports.find(r => r.userId === report.receiverGiverId && r.giverRecipientId === report.userId && r.week === report.week);
-          if (matchingGiver) {
-            const receiverCount = sortedReports.filter((r, i) => i <= index && r.piggyAmount > 0 && r.receiverGiverId === report.receiverGiverId).length;
-            if (receiverCount === 1 && report.piggyAmount >= 300000) weeklyBusiness += 5;
-            else if (receiverCount === 3 && report.piggyAmount >= 500000) {
-              const totalPiggy = sortedReports.filter((r, i) => i <= index && r.receiverGiverId === report.receiverGiverId).reduce((sum, r) => sum + r.piggyAmount, 0);
-              if (totalPiggy >= 1000000) weeklyBusiness += 10;
-            }
-          }
-        } else {
-          weeklyBusiness += report.piggyAmount >= 1500000 ? 10 : (report.piggyAmount >= 1000000 ? 5 : 0);
-        }
+      if (report.receiverAmount > 0) {
+        if (!report.isReceiverExternal) businessScore += report.receiverAmount >= 500000 ? 10 : 0;
+        else businessScore += report.receiverAmount >= 2000000 ? 20 : (report.receiverAmount >= 1500000 ? 15 : 10);
       }
-      monthlyBusinessScore += weeklyBusiness;
-      monthlyBonus += report.bonusPoints || 0;
-      monthlyPenalty += report.penaltyPoints || 0;
+      if (report.piggyAmount > 0) {
+        if (!report.isPiggyExternal) businessScore += report.piggyAmount < 500000 ? 5 : 10;
+        else businessScore += report.piggyAmount >= 2000000 ? 20 : (report.piggyAmount >= 1500000 ? 15 : 10);
+      }
+      indicatorsScore += Math.min(35, businessScore);
+
+      // Add to accumulated total (before capping month at 100)
+      totalPointsAccumulated += (weeklyScore + indicatorsScore + (report.bonusPoints || 0) - (report.penaltyPoints || 0));
+
+      // Business logic for external high value (Cash Bonus & Bonus Next Month)
+      if (report.giverAmount >= 1000000000 && report.isGiverExternal) {
+        monthlyCashBonus += 1000000;
+        monthlyBonusNextMonth += (report.giverAmount >= 5000000000 ? 30 : (report.giverAmount >= 2000000000 ? 10 : 5));
+      }
     } else {
-      // 5th Week logic: ONLY presence points
+      // 5th Week logic: ONLY presence points as bonus
       if (report.presenceStatus === 'present') bonusPoints5thWeek = 5;
     }
   });
 
-  // Calculate Base Score (Capped at 100)
-  baseScore += Math.min(20, monthlyPresence4Weeks);
-  if (monthlyInfoCount >= 3 || monthlyFbShares >= 4) baseScore += 5;
-  baseScore += Math.min(20, monthlyOppCount * 4);
-  baseScore += Math.min(10, (monthlyTargetedGuests * 10) + (monthlyNonTargetedGuests * 5));
-  baseScore += Math.min(10, (monthlyNormalMeetings * 1) + (monthlyJointHosting * 4) + (monthlyJointTrip * 4) + (monthlyOfficeMeeting * 2));
-  baseScore += Math.min(35, monthlyBusinessScore);
-  baseScore += monthlyBonus;
-  baseScore -= monthlyPenalty;
-
-  // Task 9: Total points of a month = 100 max + 5 bonus for 5th week
-  const finalBaseScore = Math.min(100, baseScore);
-  const total = finalBaseScore + bonusPoints5thWeek;
+  const total = Math.min(100, Math.max(0, totalPointsAccumulated)) + bonusPoints5thWeek;
 
   return {
     total: total,
@@ -549,12 +508,18 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
 
   const calculateTotal = () => {
     // Check if this is the 5th week of the cycle
-    const userReports = reports.filter(r => r.userId === userId);
+    const currentMonthStr = format(new Date(), 'yyyy-MM');
+    const userReports = reports.filter(r => {
+      if (r.userId !== userId) return false;
+      const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
+      return format(d, 'yyyy-MM') === currentMonthStr;
+    });
+
     let isFifthWeek = false;
     if (existingReport) {
       const sorted = [...userReports].sort((a, b) => {
-        const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-        const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+        const dateA = a.date?.toDate ? a.date.toDate() : (a.date ? new Date(a.date) : new Date());
+        const dateB = b.date?.toDate ? b.date.toDate() : (b.date ? new Date(b.date) : new Date());
         return dateA.getTime() - dateB.getTime();
       });
       const index = sorted.findIndex(r => r.id === existingReport.id);
@@ -573,28 +538,32 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
 
     // If it's the 5th week, only presence points are counted (as bonus)
     if (isFifthWeek) {
-      return Math.max(0, score); // Bonus can't be negative for the 5th week display
+      return Math.max(0, score);
     }
 
     // Indicators (First 4 weeks only)
-    // ... logic same as calculateMonthlyScore ...
     let indicatorsScore = 0;
     
-    let infoScore = 0;
-    if (formData.infoCount >= 3) infoScore = 5;
-    if (formData.fbShares >= 4) infoScore = 5;
-    indicatorsScore += Math.min(5, infoScore);
+    // Info & FB Shares (Weekly cap 5)
+    if (formData.infoCount >= 3 || formData.fbShares >= 4) indicatorsScore += 5;
+
+    // Opportunities (Weekly cap 20)
     indicatorsScore += Math.min(20, formData.oppCount * 4);
+
+    // Guests (Weekly cap 10)
     indicatorsScore += Math.min(10, (formData.targetedGuests * 10) + (formData.nonTargetedGuests * 5));
+
+    // Meetings (Weekly cap 10)
     indicatorsScore += Math.min(10, (formData.normalMeetings * 1) + (formData.jointHosting * 4) + (formData.jointTrip * 4) + (formData.officeMeeting * 2));
 
+    // Business Score (Weekly cap 35)
     let businessScore = 0;
     if (formData.giverAmount > 0) {
       if (!formData.isGiverExternal) businessScore += formData.giverAmount < 50000000 ? 5 : 10;
       else businessScore += formData.giverAmount < 300000000 ? 10 : 15;
     }
     if (formData.receiverAmount > 0) {
-      if (!formData.isReceiverExternal) businessScore += formData.receiverAmount >= 500000 ? 10 : (formData.receiverAmount >= 300000 ? 5 : 0);
+      if (!formData.isReceiverExternal) businessScore += formData.receiverAmount >= 500000 ? 10 : 0;
       else businessScore += formData.receiverAmount >= 2000000 ? 20 : (formData.receiverAmount >= 1500000 ? 15 : 10);
     }
     if (formData.piggyAmount > 0) {
@@ -603,9 +572,6 @@ const KPIInput = memo(({ userId, isAdmin, onComplete, existingReport, reports, u
     }
     indicatorsScore += Math.min(35, businessScore);
 
-    // Final weekly score calculation for the report itself
-    // However, the monthly score is what matters for the 100 limit.
-    // For the individual report, we show the raw contribution.
     return score + indicatorsScore + formData.bonusPoints - formData.penaltyPoints;
   };
 
