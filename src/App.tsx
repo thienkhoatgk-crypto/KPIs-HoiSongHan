@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo, memo } from 'react';
 import { 
-  auth, db 
+  auth, db, storage 
 } from './firebase';
+import { 
+  ref, uploadString, getDownloadURL 
+} from 'firebase/storage';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -415,10 +418,18 @@ function ImageEvidenceInput({
     
     for (let i = 0; i < files.length; i++) {
       try {
-        const compressed = await compressImage(files[i]);
-        newImages.push(compressed);
+        const compressedBase64 = await compressImage(files[i]);
+        
+        // Upload to Firebase Storage
+        const fileName = `${Date.now()}_${files[i].name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const storageRef = ref(storage, `users/${auth.currentUser?.uid}/${fileName}`);
+        
+        await uploadString(storageRef, compressedBase64, 'data_url');
+        const downloadURL = await getDownloadURL(storageRef);
+        
+        newImages.push(downloadURL);
       } catch (err) {
-        console.error("Compression error:", err);
+        console.error("Upload error:", err);
       }
     }
     
