@@ -1321,7 +1321,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
 
   const handleStatusChange = async (report: KPIReport, newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
     try {
-      await setDoc(doc(db, 'reports', report.id), {
+      await setDoc(doc(db, 'reports', report.id!), {
         ...report,
         status: newStatus,
         updatedAt: serverTimestamp(),
@@ -4275,7 +4275,7 @@ export default function App() {
                 <p className="text-xs text-amber-700">{notification.message}</p>
               </div>
               <button 
-                onClick={() => setDismissedNotifications(prev => [...prev, notification.id])}
+                onClick={() => setDismissedNotifications(prev => [...prev, notification.id!])}
                 className="p-2 text-amber-400 hover:text-amber-600 hover:bg-amber-100 rounded-lg transition-all"
               >
                 <X size={16} />
