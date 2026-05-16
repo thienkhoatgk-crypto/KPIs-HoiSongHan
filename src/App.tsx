@@ -1320,11 +1320,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
   };
 
   const handleStatusChange = async (report: KPIReport, newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
-    if (!report.id) {
-      console.error("Lỗi: Không tìm thấy ID báo cáo");
-      return;
-    }
-    
     try {
       await setDoc(doc(db, 'reports', report.id), {
         ...report,
@@ -4140,19 +4135,8 @@ export default function App() {
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
             </div>
             <div className="text-left">
-              <div className="text-lg leading-tight">Đăng nhập (Cách 1)</div>
-              <div className="text-[10px] opacity-70 font-medium">Sử dụng Google Popup</div>
-            </div>
-          </button>
-
-          <button 
-            onClick={handleLoginRedirect}
-            className="w-full mt-3 py-4 bg-white border-2 border-[#1e3a8a] text-[#1e3a8a] font-bold rounded-2xl hover:bg-blue-50 transition-all flex items-center justify-center gap-3 shadow-md group"
-          >
-            <RefreshCcw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
-            <div className="text-left">
-              <div className="text-md leading-tight">Đăng nhập (Cách 2)</div>
-              <div className="text-[10px] opacity-70 font-medium">Sử dụng Redirect (Khuyên dùng nếu Popup lỗi)</div>
+              <div className="text-lg leading-tight">Đăng nhập tài khoản</div>
+              <div className="text-[10px] opacity-70 font-medium">Sử dụng Google để tiếp tục</div>
             </div>
           </button>
 
@@ -4165,48 +4149,6 @@ export default function App() {
               </div>
             </div>
           )}
-
-          {/* Hướng dẫn triển khai cho Quản trị viên */}
-          <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-2xl text-left">
-            <h4 className="text-xs font-black text-blue-800 uppercase mb-3 flex items-center gap-2">
-              <ShieldCheck size={14} /> HƯỚNG DẪN TRIỂN KHAI (Dành cho Admin)
-            </h4>
-            <div className="space-y-4">
-              <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
-                <p className="font-bold text-blue-700 text-[11px] mb-3 flex items-center gap-1">
-                  <ExternalLink size={14} /> 1. FIX LỖI ĐĂNG NHẬP (Lưu ý quan trọng)
-                </p>
-                <div className="space-y-2 text-[10px] text-gray-700 font-medium font-serif leading-relaxed">
-                  <p>Nếu bấm nút đăng nhập mà không có phản hồi hoặc báo lỗi "Unauthorized":</p>
-                  <p>1. Copy tên miền này: <code className="bg-gray-100 px-1 font-mono">{window.location.hostname}</code></p>
-                  <p>2. Vào <a href="https://console.firebase.google.com/project/kpissonghan/authentication/settings" target="_blank" className="text-blue-600 underline">Firebase Auth Settings</a> &gt; <b>Authorized Domains</b>.</p>
-                  <p>3. Chọn <b>Add Domain</b> &gt; Dán tên miền vừa copy vào và nhấn Save.</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
-                <p className="font-bold text-blue-700 text-[11px] mb-3 flex items-center gap-1">
-                  <Github size={14} /> 2. ĐƯA LÊN TÊN MIỀN ONLINE
-                </p>
-                <div className="space-y-3 text-[10px] text-gray-700 font-medium">
-                  <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                    <p className="font-bold text-blue-800 mb-1">A. Export Code</p>
-                    <p>Nhấn vào <b>Menu (3 gạch)</b> trái trên &gt; <b>Export to GitHub</b> &gt; Chọn Repo <b>"KPIs-HoiSongHan"</b>.</p>
-                  </div>
-                  <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
-                    <p className="font-bold text-purple-800 mb-1">B. Cấu hình DNS (Hostinger)</p>
-                    <p>1. Vào <a href="https://console.firebase.google.com/project/kpissonghan/apphosting" target="_blank" className="text-blue-600 underline">App Hosting</a> &gt; Backend &gt; <b>Domains</b>.</p>
-                    <p>2. Bấm <b>"To validate"</b> (Nút màu xanh) nếu đã đổi xong.</p>
-                    <p>3. Kiểm tra tại Hostinger các bản ghi này:</p>
-                    <ul className="list-disc ml-4 space-y-1 mt-1 text-blue-900">
-                      <li><b>Loại A:</b> Trỏ @ về <code className="bg-white px-1">199.36.158.100</code></li>
-                      <li><b>Loại TXT:</b> Trỏ @ về <code className="bg-white px-1">hosting-site=kpissonghan</code></li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
           
           <p className="mt-8 text-xs text-gray-400 font-medium italic">Hệ thống quản lý KPI nội bộ</p>
           
@@ -4333,11 +4275,7 @@ export default function App() {
                 <p className="text-xs text-amber-700">{notification.message}</p>
               </div>
               <button 
-                onClick={() => {
-                  if (notification.id) {
-                    setDismissedNotifications(prev => [...prev, notification.id]);
-                  }
-                }}
+                onClick={() => setDismissedNotifications(prev => [...prev, notification.id])}
                 className="p-2 text-amber-400 hover:text-amber-600 hover:bg-amber-100 rounded-lg transition-all"
               >
                 <X size={16} />
