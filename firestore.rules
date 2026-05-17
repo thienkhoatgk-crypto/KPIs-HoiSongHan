@@ -106,5 +106,11 @@ service cloud.firestore {
     match /test/{docId} {
       allow read: if isSignedIn();
     }
+
+    // 9. Reports History
+    match /reports_history/{reportId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
   }
 }

@@ -1277,7 +1277,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
   const isCurrentMonth = selectedMonth === format(new Date(), 'yyyy-MM');
 
   const handleCloseMonth = async () => {
-    if (!window.confirm("BẠN CÓ CHẮC CHẮN MUỐN CHỐT SỐ VÀ LƯU TRỮ THÁNG HIỆN TẠI?\nDữ liệu này sẽ được lưu vào lịch sử và bảng xếp hạng sẽ được reset cho tháng mới.")) return;
+    if (!window.confirm("BẠN CÓ CHẮC CHẮN MUỐN CHỐT SỐ VÀ LÀM MỚI THÁNG?\n- Các báo cáo hiện tại sẽ được tổng hợp vào Bảng Tổng Kết.\n- Dữ liệu tháng cũ sẽ được lưu trữ (Archive).\n- Hệ thống sẽ sẵn sàng cho việc nhập liệu tháng mới.\n\nDữ liệu không bị mất, chỉ được chuyển vào lịch sử.")) return;
     setResetLoading(true);
     try {
       const batch = writeBatch(db);
@@ -1303,14 +1303,17 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
         });
       }
 
-      // Move current reports to archive (optional, or just delete if archiving isn't needed)
-      // For now, let's just delete to reset, as they are saved in summary
+      // Archive current reports
       const snap = await getDocs(collection(db, 'reports'));
-      snap.docs.forEach(d => batch.delete(d.ref));
+      for (const d of snap.docs) {
+        const historyRef = doc(collection(db, 'reports_history'), d.id);
+        batch.set(historyRef, { ...d.data(), archivedAt: serverTimestamp(), cycleKey: monthPrefix });
+        batch.delete(d.ref);
+      }
       
       await batch.commit();
       onReset();
-      alert("Chốt tháng thành công!");
+      alert("Đã chốt tháng và lưu trữ dữ liệu cũ thành công!");
     } catch (err) {
       console.error("Close month error:", err);
       alert("Có lỗi xảy ra khi chốt tháng.");
@@ -1319,9 +1322,35 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
     }
   };
 
+  const handleDeleteDemoData = async () => {
+    if (!window.confirm("⚠️ CẢNH BÁO NGUY HIỂM\nBạn có chắc chắn muốn XÓA SẠCH DỮ LIỆU DEMO?\nThao tác này sẽ xóa toàn bộ: Báo cáo, Cuộc họp, Khách mời.\nKHÔNG THỂ PHỤC HỒI!")) return;
+    setResetLoading(true);
+    try {
+      const batch = writeBatch(db);
+      
+      const reportsSnap = await getDocs(collection(db, 'reports'));
+      reportsSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      const meetingsSnap = await getDocs(collection(db, 'meetings'));
+      meetingsSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      const guestsSnap = await getDocs(collection(db, 'guests'));
+      guestsSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      await batch.commit();
+      onReset();
+      alert("Đã xóa sạch dữ liệu demo!");
+    } catch (err) {
+      console.error("Delete demo data error:", err);
+      alert("Có lỗi xảy ra khi xóa dữ liệu demo.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const handleStatusChange = async (report: KPIReport, newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
     try {
-      await setDoc(doc(db, 'reports', report.id!), {
+      await setDoc(doc(db, 'reports', report.id), {
         ...report,
         status: newStatus,
         updatedAt: serverTimestamp(),
@@ -1995,12 +2024,21 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
               Chi tiết {activeGroup === 'all' ? 'Toàn hội' : 'Nhóm ' + activeGroup}
             </button>
             <button 
+              onClick={handleDeleteDemoData}
+              disabled={resetLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-full text-sm font-bold hover:bg-gray-200 transition-all disabled:opacity-50"
+              title="Xóa sạch dữ liệu demo"
+            >
+              <Trash2 size={16} />
+              Xóa Demo
+            </button>
+            <button 
               onClick={handleCloseMonth}
               disabled={resetLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-bold hover:bg-blue-100 transition-all disabled:opacity-50"
             >
               <RefreshCcw size={16} className={resetLoading ? "animate-spin" : ""} />
-              Chốt Tháng
+              Làm mới tháng & Lưu trữ
             </button>
           </div>
         )}
@@ -4275,7 +4313,7 @@ export default function App() {
                 <p className="text-xs text-amber-700">{notification.message}</p>
               </div>
               <button 
-                onClick={() => setDismissedNotifications(prev => [...prev, notification.id!])}
+                onClick={() => setDismissedNotifications(prev => [...prev, notification.id])}
                 className="p-2 text-amber-400 hover:text-amber-600 hover:bg-amber-100 rounded-lg transition-all"
               >
                 <X size={16} />

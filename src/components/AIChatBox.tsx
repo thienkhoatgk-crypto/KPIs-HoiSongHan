@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Send, 
@@ -78,22 +77,6 @@ export function AIChatBox() {
     }
   }, [messages]);
 
-  const initChat = () => {
-    if (!chatInstance.current && process.env.GEMINI_API_KEY) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        chatInstance.current = ai.chats.create({
-          model: "gemini-3-flash-preview",
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-          },
-        });
-      } catch (error) {
-        console.error("AI Init Error:", error);
-      }
-    }
-  };
-
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -104,21 +87,27 @@ export function AIChatBox() {
       id: Date.now().toString(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
     setInput('');
     setIsLoading(true);
 
     try {
-      if (!chatInstance.current) {
-        initChat();
-      }
-      
-      if (!chatInstance.current) {
-        throw new Error("Không thể khởi tạo AI Assistant. Vui lòng kiểm tra API Key.");
+      const response = await fetch('/api/gemini/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          messages: currentMessages,
+          systemInstruction: SYSTEM_INSTRUCTION
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('API request failed');
       }
 
-      const response = await chatInstance.current.sendMessage({ message: input });
-      const text = response.text;
+      const data = await response.json();
+      const text = data.text;
       
       const aiResponse: Message = {
         role: 'model',

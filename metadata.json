@@ -1,5 +1,8 @@
 {
   "name": "KPI Sông Hàn Construction",
   "description": "Hệ thống chấm điểm KPI tự động cho Hội Xây Dựng Sông Hàn",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
