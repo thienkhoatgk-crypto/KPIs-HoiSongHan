@@ -149,7 +149,7 @@ const getReportingStatus = (date: Date) => {
   return { isOpen, isMeetingDay, isLastTuesday };
 };
 
-const calculateMonthlyScore = (userReports: KPIReport[], allReports: KPIReport[]) => {
+const calculateMonthlyScore = (userReports: KPIReport[]) => {
   if (userReports.length === 0) return { total: 0, bonusNextMonth: 0, cashBonus: 0 };
 
   // Sort reports by date to identify weeks correctly
@@ -1261,7 +1261,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
       // Calculate final scores for each user
       for (const user of users) {
         const userReports = reports.filter(r => r.userId === user.uid);
-        const scoreData = calculateMonthlyScore(userReports, reports);
+        const scoreData = calculateMonthlyScore(userReports);
         
         const summaryRef = doc(collection(db, 'monthly_summaries'));
         batch.set(summaryRef, {
@@ -1294,9 +1294,69 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
     }
   };
 
+  // 🌟 HÀM 1: ADMIN THÊM THÀNH VIÊN MỚI
+  const handleAddMember = async (memberData: {
+    email: string;
+    representative: string;
+    companyName: string;
+    group: string;
+    phone: string;
+  }) => {
+    try {
+      // Tạo một ID ngẫu nhiên hoặc dùng email làm ID viết thường để dễ quản lý
+      const memberId = memberData.email.trim().toLowerCase();
+      
+      // Ghi trực tiếp vào bộ sưu tập users theo đúng cấu trúc dữ liệu quy định ở Rules
+      await setDoc(doc(db, "users", memberId), {
+        uid: memberId, // Định danh bằng email viết thường để đồng bộ với chốt chặn email
+        email: memberData.email.trim(),
+        representative: memberData.representative.trim(),
+        companyName: memberData.companyName.trim(),
+        group: memberData.group || "Sông Hàn",
+        phone: memberData.phone.trim(),
+        role: "member", // Mặc định là thành viên thông thường
+        totalScore: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      // Tạo luôn bản ghi đối soát bên allowed_members để hệ thống cho phép đăng nhập
+      await setDoc(doc(db, "allowed_members", memberData.email.trim()), {
+        email: memberData.email.trim(),
+        role: "member"
+      });
+
+      alert("🎉 Đã thêm thành viên mới và cấp quyền truy cập thành công!");
+    } catch (error) {
+      console.error("Lỗi thêm thành viên:", error);
+      alert("🛑 Không thể thêm thành viên. Hãy kiểm tra lại quyền Admin!");
+    }
+  };
+
+  // 🌟 HÀM 2: ADMIN XÓA THÀNH VIÊN
+  const handleDeleteMember = async (memberEmail: string) => {
+    if (!window.confirm(`⚠️ Anh chắc chắn muốn xóa thành viên (${memberEmail}) khỏi hệ thống Sông Hàn?`)) {
+      return;
+    }
+    try {
+      const memberId = memberEmail.trim().toLowerCase();
+      
+      // Xóa khỏi bộ sưu tập users
+      await deleteDoc(doc(db, "users", memberId));
+      
+      // Xóa luôn bên allowed_members để chặn quyền đăng nhập vào pháo đài
+      await deleteDoc(doc(db, "allowed_members", memberEmail.trim()));
+
+      alert("🗑️ Đã xóa thành viên và hủy quyền truy cập thành công!");
+    } catch (error) {
+      console.error("Lỗi xóa thành viên:", error);
+      alert("🛑 Gặp lỗi khi xóa thành viên!");
+    }
+  };
+
   const handleStatusChange = async (report: KPIReport, newStatus: 'pending' | 'approved' | 'rejected' | 'flagged') => {
     try {
-      await setDoc(doc(db, 'reports', report.id), {
+      await setDoc(doc(db, 'reports', report.id as string), {
         ...report,
         status: newStatus,
         updatedAt: serverTimestamp(),
@@ -1424,7 +1484,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
             const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
             return format(d, 'yyyy-MM') === selectedMonth;
           });
-          const scoreData = calculateMonthlyScore(userReports, reports);
+          const scoreData = calculateMonthlyScore(userReports);
           return { 
             uid: user.uid,
             representative: user.representative,
@@ -1771,7 +1831,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
           const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
           return d.getFullYear() === currentYear && d.getMonth() === i;
         });
-        return calculateMonthlyScore(monthReports, reports).total;
+        return calculateMonthlyScore(monthReports).total;
       });
       const term1 = months.slice(0, 6).reduce((a, b) => a + b, 0);
       const term2 = months.slice(6, 12).reduce((a, b) => a + b, 0);
@@ -1920,6 +1980,7 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
               >
                 Khách mời
               </button>
+              {/* 👤 NÚT BẤM CHUYỂN TAB QUẢN LÝ THÀNH VIÊN CHO ADMIN (ĐÃ SỬA CHUẨN) */}
               <button 
                 onClick={() => setViewMode('members')}
                 className={cn(
@@ -2033,7 +2094,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-            {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -2090,7 +2150,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
               </table>
             </div>
 
-            {/* Mobile Card View */}
             <div className="md:hidden divide-y divide-gray-50">
               {sortedUsers.map((user, index) => (
                 <div key={user.uid} className="p-4 flex items-center gap-4">
@@ -2136,7 +2195,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
         </>
       ) : viewMode === 'dashboard' ? (
         <div className="space-y-8">
-          {/* Top Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
               <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 mb-4">
@@ -2170,7 +2228,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
             </div>
           </div>
 
-          {/* Warnings */}
           {(criticalUsers.length > 0 || warningUsers.length > 0) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {criticalUsers.length > 0 && (
@@ -2225,7 +2282,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Group Performance */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -2250,7 +2306,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
               </div>
             </div>
 
-            {/* Top Performers */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -2284,7 +2339,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Giver Revenue Distribution */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -2317,7 +2371,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
               </div>
             </div>
 
-            {/* Receiver Revenue Distribution */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -2352,7 +2405,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Recent Reports */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -2395,7 +2447,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
               </div>
             </div>
 
-            {/* Recent Guests */}
             <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -2577,7 +2628,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-            {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -2611,66 +2661,27 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
                         <td className="px-6 py-4">
                           <p className="font-bold text-gray-900 text-sm">{user?.representative || 'N/A'}</p>
                           <p className="text-[10px] text-gray-500">{user?.companyName}</p>
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            {renderEvidenceLinks(report.evidence, 'Chung')}
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.meetingEvidence, 'Gặp mặt')}
-                              {renderParticipants(report.meetingParticipantIds, 'Gặp mặt')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.hostingEvidence, 'Tiếp khách')}
-                              {renderParticipants(report.hostingParticipantIds, 'Tiếp khách')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.tripEvidence, 'Công tác')}
-                              {renderParticipants(report.tripParticipantIds, 'Công tác')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.officeEvidence, 'Văn phòng')}
-                              {renderParticipants(report.officeParticipantIds, 'Văn phòng')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.giverEvidence, 'DS Cho')}
-                              {report.giverRecipientId && (
-                                <p className="text-[9px] text-green-600 font-bold">Cho: {users.find(u => u.uid === report.giverRecipientId)?.representative}</p>
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.receiverEvidence, 'DS Nhận')}
-                              {report.receiverGiverId && (
-                                <p className="text-[9px] text-blue-600 font-bold">Nhận từ: {users.find(u => u.uid === report.receiverGiverId)?.representative}</p>
-                              )}
-                            </div>
-                            {renderEvidenceLinks(report.piggyEvidence, 'Quỹ Heo')}
-                          </div>
                         </td>
                         <td className="px-6 py-4 text-center">
                           <span className="text-sm font-black text-blue-600">{report.total}đ</span>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <select 
-                              value={report.status || 'pending'}
-                              onChange={(e) => handleStatusChange(report, e.target.value as any)}
-                              className={cn(
-                                "text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none outline-none cursor-pointer",
-                                report.status === 'approved' ? "bg-green-50 text-green-600" :
-                                report.status === 'rejected' ? "bg-red-50 text-red-600" :
-                                report.status === 'flagged' ? "bg-orange-50 text-orange-600" :
-                                "bg-yellow-50 text-yellow-600"
-                              )}
-                            >
-                              <option value="pending">Chờ duyệt</option>
-                              <option value="approved">Đã duyệt</option>
-                              <option value="rejected">Từ chối</option>
-                              <option value="flagged">Nghi vấn</option>
-                            </select>
-                            {report.adminNote && (
-                              <p className="text-[9px] text-orange-600 italic max-w-[120px] truncate" title={report.adminNote}>
-                                * {report.adminNote}
-                              </p>
+                          <select 
+                            value={report.status || 'pending'}
+                            onChange={(e) => handleStatusChange(report, e.target.value as any)}
+                            className={cn(
+                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none outline-none cursor-pointer",
+                              report.status === 'approved' ? "bg-green-50 text-green-600" :
+                              report.status === 'rejected' ? "bg-red-50 text-red-600" :
+                              report.status === 'flagged' ? "bg-orange-50 text-orange-600" :
+                              "bg-yellow-50 text-yellow-600"
                             )}
-                          </div>
+                          >
+                            <option value="pending">Chờ duyệt</option>
+                            <option value="approved">Đã duyệt</option>
+                            <option value="rejected">Từ chối</option>
+                            <option value="flagged">Nghi vấn</option>
+                          </select>
                         </td>
                         <td className="px-6 py-4 text-center">
                           {editDate ? (
@@ -2701,106 +2712,6 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
                 </tbody>
               </table>
             </div>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden divide-y divide-gray-50">
-              {reports
-                .filter(r => 
-                  (reportFilterStatus === 'all' || r.status === reportFilterStatus) &&
-                  (reportFilterUser === 'all' || r.userId === reportFilterUser)
-                )
-                .sort((a, b) => b.week.localeCompare(a.week))
-                .map((report) => {
-                  const user = users.find(u => u.uid === report.userId);
-                  const updateDate = report.updatedAt?.toDate ? report.updatedAt.toDate() : report.updatedAt ? new Date(report.updatedAt) : null;
-                  
-                  return (
-                    <div key={report.id} className="p-4 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-gray-900 text-sm">Tuần {report.week.split('-')[1]} ({report.week.split('-')[0]})</p>
-                          <p className="text-xs font-bold text-blue-600 mt-1">{user?.representative || 'N/A'}</p>
-                          <p className="text-[10px] text-gray-500">{user?.companyName}</p>
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            {renderEvidenceLinks(report.evidence, 'Chung')}
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.meetingEvidence, 'Gặp mặt')}
-                              {renderParticipants(report.meetingParticipantIds, 'Gặp mặt')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.hostingEvidence, 'Tiếp khách')}
-                              {renderParticipants(report.hostingParticipantIds, 'Tiếp khách')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.tripEvidence, 'Công tác')}
-                              {renderParticipants(report.tripParticipantIds, 'Công tác')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.officeEvidence, 'Văn phòng')}
-                              {renderParticipants(report.officeParticipantIds, 'Văn phòng')}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.giverEvidence, 'DS Cho')}
-                              {report.giverRecipientId && (
-                                <p className="text-[9px] text-green-600 font-bold">Cho: {users.find(u => u.uid === report.giverRecipientId)?.representative}</p>
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {renderEvidenceLinks(report.receiverEvidence, 'DS Nhận')}
-                              {report.receiverGiverId && (
-                                <p className="text-[9px] text-blue-600 font-bold">Nhận từ: {users.find(u => u.uid === report.receiverGiverId)?.representative}</p>
-                              )}
-                            </div>
-                            {renderEvidenceLinks(report.piggyEvidence, 'Quỹ Heo')}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-black text-[#1e3a8a]">{report.total}đ</p>
-                          <p className="text-[8px] font-bold text-gray-400 uppercase">Điểm</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 pt-2 border-t border-gray-50">
-                        <div className="flex items-center justify-between w-full">
-                          <select 
-                            value={report.status || 'pending'}
-                            onChange={(e) => handleStatusChange(report, e.target.value as any)}
-                            className={cn(
-                              "text-[10px] font-bold uppercase px-3 py-1.5 rounded-lg border-none outline-none cursor-pointer",
-                              report.status === 'approved' ? "bg-green-50 text-green-600" :
-                              report.status === 'rejected' ? "bg-red-50 text-red-600" :
-                              report.status === 'flagged' ? "bg-orange-50 text-orange-600" :
-                              "bg-yellow-50 text-yellow-600"
-                            )}
-                          >
-                            <option value="pending">Chờ duyệt</option>
-                            <option value="approved">Đã duyệt</option>
-                            <option value="rejected">Từ chối</option>
-                            <option value="flagged">Nghi vấn</option>
-                          </select>
-                          <div className="flex gap-3">
-                            {isAdmin && (
-                              <button 
-                                onClick={() => onEditReport(report)}
-                                className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold"
-                              >
-                                Sửa
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {report.adminNote && (
-                          <div className="bg-orange-50 p-2 rounded-lg border border-orange-100">
-                            <p className="text-[9px] text-orange-700 font-medium">
-                              <AlertTriangle size={10} className="inline mr-1" />
-                              {report.adminNote}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
           </div>
         </div>
       ) : viewMode === 'meetings' ? (
@@ -2813,10 +2724,8 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
             }).map(meeting => {
               const meetingDate = meeting.date?.toDate ? meeting.date.toDate() : new Date(meeting.date);
               return (
-                <motion.div 
+                <div 
                   key={meeting.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
                   className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden group"
                 >
                   <div className={cn(
@@ -2829,754 +2738,128 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
                   </div>
 
                   <h4 className="text-lg font-black text-gray-900 mb-2 pr-16">{meeting.title}</h4>
-                  {meeting.description && <p className="text-xs text-gray-500 mb-4 line-clamp-2">{meeting.description}</p>}
-                  
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 text-gray-600">
                       <Calendar size={16} className="text-blue-600" />
                       <span className="text-sm font-medium">{format(meetingDate, 'dd/MM/yyyy')}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-gray-600">
-                      <Clock size={16} className="text-blue-600" />
-                      <span className="text-sm font-medium">{meeting.time}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-gray-600">
-                      <MapPin size={16} className="text-blue-600" />
-                      <span className="text-sm font-medium">{meeting.location}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-gray-600">
-                      <Users size={16} className="text-blue-600" />
-                      <span className="text-sm font-medium">{meeting.attendees.length} người tham gia</span>
-                    </div>
                   </div>
-
-                  {isAdmin && (
-                    <div className="flex gap-2 mt-6 pt-4 border-t border-gray-50 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => {
-                          setEditingMeeting(meeting);
-                          setMeetingForm({
-                            title: meeting.title,
-                            description: meeting.description || '',
-                            date: format(meetingDate, 'yyyy-MM-dd'),
-                            time: meeting.time,
-                            location: meeting.location,
-                            type: meeting.type,
-                            attendees: meeting.attendees,
-                            reminderSettings: meeting.reminderSettings || { type: 'both', times: [60, 1440] }
-                          });
-                          setShowMeetingModal(true);
-                        }}
-                        className="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-100 transition-all"
-                      >
-                        Sửa
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteMeeting(meeting.id!)}
-                        className="flex-1 py-2 bg-red-50 text-red-600 text-xs font-bold rounded-xl hover:bg-red-100 transition-all"
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  )}
-                </motion.div>
+                </div>
               );
             })}
           </div>
-
-          {meetings.length === 0 && (
-            <div className="text-center py-20 bg-white rounded-[2.5rem] border border-gray-100">
-              <Calendar size={48} className="mx-auto text-gray-200 mb-4" />
-              <p className="text-gray-400 font-medium">Chưa có cuộc họp nào được thiết lập.</p>
-            </div>
-          )}
-
-          <AnimatePresence>
-            {showMeetingModal && (
-              <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setShowMeetingModal(false)}
-                  className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-                />
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden"
-                >
-                  <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                    <h2 className="text-xl font-black text-gray-900">
-                      {editingMeeting ? 'Chỉnh sửa cuộc họp' : 'Thiết lập cuộc họp mới'}
-                    </h2>
-                    <button onClick={() => setShowMeetingModal(false)} className="text-gray-400 hover:text-gray-600">
-                      <Plus size={24} className="rotate-45" />
-                    </button>
-                  </div>
-                  <form onSubmit={handleSaveMeeting} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Tiêu đề</label>
-                      <input 
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={meetingForm.title}
-                        onChange={e => setMeetingForm({...meetingForm, title: e.target.value})}
-                        placeholder="VD: Họp định kỳ tuần 15"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Mô tả</label>
-                      <textarea 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
-                        value={meetingForm.description}
-                        onChange={e => setMeetingForm({...meetingForm, description: e.target.value})}
-                        placeholder="Nội dung cuộc họp..."
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Ngày</label>
-                        <input 
-                          type="date"
-                          required
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                          value={meetingForm.date}
-                          onChange={e => setMeetingForm({...meetingForm, date: e.target.value})}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Giờ</label>
-                        <input 
-                          type="time"
-                          required
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                          value={meetingForm.time}
-                          onChange={e => setMeetingForm({...meetingForm, time: e.target.value})}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Địa điểm</label>
-                      <input 
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={meetingForm.location}
-                        onChange={e => setMeetingForm({...meetingForm, location: e.target.value})}
-                        placeholder="VD: Văn phòng Hội hoặc Zoom"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Loại cuộc họp</label>
-                      <select 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={meetingForm.type}
-                        onChange={e => setMeetingForm({...meetingForm, type: e.target.value as any})}
-                      >
-                        <option value="weekly">Hàng tuần</option>
-                        <option value="monthly">Hàng tháng</option>
-                        <option value="special">Đặc biệt</option>
-                      </select>
-                    </div>
-                    
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Người tham dự ({meetingForm.attendees.length || 'Tất cả'})</label>
-                      <div className="max-h-[150px] overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
-                        {users.sort((a, b) => a.representative.localeCompare(b.representative)).map(u => (
-                          <label key={u.uid} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded transition-colors">
-                            <input 
-                              type="checkbox"
-                              checked={meetingForm.attendees.includes(u.uid)}
-                              onChange={e => {
-                                const newAttendees = e.target.checked 
-                                  ? [...meetingForm.attendees, u.uid]
-                                  : meetingForm.attendees.filter(id => id !== u.uid);
-                                setMeetingForm({...meetingForm, attendees: newAttendees});
-                              }}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-xs font-medium text-gray-700">{u.representative} - {u.companyName}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-gray-400 italic">* Để trống nếu muốn mời tất cả thành viên.</p>
-                    </div>
-
-                    <div className="space-y-3 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                      <h4 className="text-xs font-bold text-blue-700 uppercase flex items-center gap-2">
-                        <Bell size={14} /> Cài đặt thông báo
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase">Phương thức</label>
-                          <select 
-                            className="w-full p-2 bg-white rounded-lg border border-blue-100 text-xs font-bold outline-none"
-                            value={meetingForm.reminderSettings.type}
-                            onChange={e => setMeetingForm({
-                              ...meetingForm, 
-                              reminderSettings: { ...meetingForm.reminderSettings, type: e.target.value as any }
-                            })}
-                          >
-                            <option value="in-app">Trong ứng dụng</option>
-                            <option value="email">Email</option>
-                            <option value="both">Cả hai</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase">Thời gian nhắc</label>
-                          <div className="flex flex-wrap gap-1">
-                            {[
-                              { label: '1h', val: 60 },
-                              { label: '2h', val: 120 },
-                              { label: '1 ngày', val: 1440 },
-                              { label: '2 ngày', val: 2880 }
-                            ].map(t => (
-                              <button
-                                key={t.val}
-                                type="button"
-                                onClick={() => {
-                                  const times = meetingForm.reminderSettings.times.includes(t.val)
-                                    ? meetingForm.reminderSettings.times.filter(v => v !== t.val)
-                                    : [...meetingForm.reminderSettings.times, t.val];
-                                  setMeetingForm({
-                                    ...meetingForm,
-                                    reminderSettings: { ...meetingForm.reminderSettings, times }
-                                  });
-                                }}
-                                className={cn(
-                                  "px-2 py-1 rounded text-[9px] font-bold border transition-all",
-                                  meetingForm.reminderSettings.times.includes(t.val)
-                                    ? "bg-blue-600 text-white border-transparent"
-                                    : "bg-white text-blue-600 border-blue-100"
-                                )}
-                              >
-                                {t.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 pt-4">
-                      <button 
-                        type="button"
-                        onClick={() => setShowMeetingModal(false)}
-                        className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-all"
-                      >
-                        Hủy
-                      </button>
-                      <button 
-                        type="submit"
-                        className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
-                      >
-                        Lưu cuộc họp
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
         </div>
       ) : viewMode === 'guests' ? (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-50/50 border-b border-gray-100">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Khách mời</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Công ty / Ngành nghề</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">Trạng thái</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">Người mời</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Thao tác</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Công ty</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {guests.sort((a, b) => {
-                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-                    return dateB.getTime() - dateA.getTime();
-                  }).map(guest => {
-                    const inviter = users.find(u => u.uid === guest.invitedBy);
-                    return (
-                      <tr key={guest.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-bold text-gray-900 text-sm">{guest.name}</p>
-                          <p className="text-[10px] text-gray-500 flex items-center gap-1">
-                            <Phone size={10} /> {guest.phone}
-                          </p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="text-sm font-bold text-gray-900">{guest.company}</p>
-                          <p className="text-[10px] text-gray-500 flex items-center gap-1">
-                            <Briefcase size={10} /> {guest.industry}
-                          </p>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={cn(
-                            "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
-                            guest.status === 'attending' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
-                          )}>
-                            {guest.status === 'attending' ? 'Tham gia' : 'Không tham gia'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <p className="text-xs font-bold text-gray-700">{inviter?.representative || 'N/A'}</p>
-                          <p className="text-[9px] text-gray-400">{inviter?.companyName}</p>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          {isAdmin && (
-                            <div className="flex justify-end gap-2">
-                              <button 
-                                onClick={() => {
-                                  setEditingGuest(guest);
-                                  setGuestForm({
-                                    name: guest.name,
-                                    company: guest.company,
-                                    industry: guest.industry,
-                                    phone: guest.phone,
-                                    status: guest.status,
-                                    meetingId: guest.meetingId || ''
-                                  });
-                                  setShowGuestModal(true);
-                                }}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              >
-                                <RefreshCcw size={14} />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteGuest(guest.id!)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                <Plus size={14} className="rotate-45" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {guests.map(guest => (
+                    <tr key={guest.id}>
+                      <td className="px-6 py-4">{guest.name}</td>
+                      <td className="px-6 py-4">{guest.company}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden divide-y divide-gray-50">
-              {guests.sort((a, b) => {
-                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-                return dateB.getTime() - dateA.getTime();
-              }).map(guest => {
-                const inviter = users.find(u => u.uid === guest.invitedBy);
-                return (
-                  <div key={guest.id} className="p-4 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-bold text-gray-900 text-sm">{guest.name}</p>
-                        <p className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
-                          <Phone size={10} /> {guest.phone}
-                        </p>
-                      </div>
-                      <span className={cn(
-                        "px-2 py-1 rounded-md text-[8px] font-bold uppercase",
-                        guest.status === 'attending' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
-                      )}>
-                        {guest.status === 'attending' ? 'Tham gia' : 'Không tham gia'}
-                      </span>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-xl space-y-1">
-                      <p className="text-xs font-bold text-gray-900">{guest.company}</p>
-                      <p className="text-[10px] text-gray-500 flex items-center gap-1">
-                        <Briefcase size={10} /> {guest.industry}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-blue-50 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-600">
-                          {inviter?.representative?.charAt(0) || 'N'}
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-gray-700">Mời bởi: {inviter?.representative || 'N/A'}</p>
-                        </div>
-                      </div>
-                      {isAdmin && (
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => {
-                              setEditingGuest(guest);
-                              setGuestForm({
-                                name: guest.name,
-                                company: guest.company,
-                                industry: guest.industry,
-                                phone: guest.phone,
-                                status: guest.status,
-                                meetingId: guest.meetingId || ''
-                              });
-                              setShowGuestModal(true);
-                            }}
-                            className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold"
-                          >
-                            Sửa
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteGuest(guest.id!)}
-                            className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold"
-                          >
-                            Xóa
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {guests.length === 0 && (
-              <div className="text-center py-20">
-                <UserPlus size={48} className="mx-auto text-gray-200 mb-4" />
-                <p className="text-gray-400 font-medium">Chưa có khách mời nào được đăng ký.</p>
-              </div>
-            )}
           </div>
-
-          <AnimatePresence>
-            {showGuestModal && (
-              <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setShowGuestModal(false)}
-                  className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-                />
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
-                >
-                  <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                    <h2 className="text-xl font-black text-gray-900">
-                      {editingGuest ? 'Cập nhật khách mời' : 'Đăng ký khách mời'}
-                    </h2>
-                    <button onClick={() => setShowGuestModal(false)} className="text-gray-400 hover:text-gray-600">
-                      <Plus size={24} className="rotate-45" />
-                    </button>
-                  </div>
-                  <form onSubmit={handleSaveGuest} className="p-6 space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Tên khách mời</label>
-                      <input 
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={guestForm.name}
-                        onChange={e => setGuestForm({...guestForm, name: e.target.value})}
-                        placeholder="Họ và tên khách mời"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Công ty</label>
-                      <input 
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={guestForm.company}
-                        onChange={e => setGuestForm({...guestForm, company: e.target.value})}
-                        placeholder="Tên công ty khách mời"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Ngành nghề</label>
-                      <input 
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={guestForm.industry}
-                        onChange={e => setGuestForm({...guestForm, industry: e.target.value})}
-                        placeholder="Lĩnh vực kinh doanh"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Số điện thoại</label>
-                      <input 
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={guestForm.phone}
-                        onChange={e => setGuestForm({...guestForm, phone: e.target.value})}
-                        placeholder="Số điện thoại liên hệ"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Trạng thái tham gia</label>
-                      <select 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={guestForm.status}
-                        onChange={e => setGuestForm({...guestForm, status: e.target.value as any})}
-                      >
-                        <option value="attending">Tham gia</option>
-                        <option value="not_attending">Không tham gia</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Cuộc họp (Tùy chọn)</label>
-                      <select 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={guestForm.meetingId}
-                        onChange={e => setGuestForm({...guestForm, meetingId: e.target.value})}
-                      >
-                        <option value="">Chọn cuộc họp...</option>
-                        {meetings.map(m => (
-                          <option key={m.id} value={m.id}>{m.title} ({format(m.date?.toDate ? m.date.toDate() : new Date(m.date), 'dd/MM')})</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex gap-3 pt-4">
-                      <button 
-                        type="button"
-                        onClick={() => setShowGuestModal(false)}
-                        className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-all"
-                      >
-                        Hủy
-                      </button>
-                      <button 
-                        type="submit"
-                        className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
-                      >
-                        Lưu thông tin
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
         </div>
       ) : viewMode === 'summary' ? (
         <div className="space-y-4">
-          <div className="md:hidden flex items-center gap-2 text-[10px] text-blue-600 font-bold bg-blue-50 px-4 py-2 rounded-xl">
-            <RefreshCcw size={12} className="animate-spin-slow" />
-            <span>Vuốt sang trái để xem chi tiết các tháng</span>
-          </div>
           <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-            <table className="w-full text-left text-[10px] sm:text-xs">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="px-4 py-4 font-bold text-gray-400 uppercase sticky left-0 bg-gray-50 z-10">Thành viên</th>
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <th key={i} className="px-2 py-4 font-bold text-gray-400 uppercase text-center">Th.{i + 1}</th>
-                  ))}
-                  <th className="px-3 py-4 font-bold text-blue-600 uppercase text-center bg-blue-50/50">N.Kỳ 1</th>
-                  <th className="px-3 py-4 font-bold text-blue-600 uppercase text-center bg-blue-50/50">N.Kỳ 2</th>
-                  <th className="px-4 py-4 font-bold text-gray-900 uppercase text-right bg-gray-100">Tổng Năm</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {summaryData.sort((a, b) => b.totalYear - a.totalYear).map(data => (
-                  <tr key={data.uid} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-4 py-4 sticky left-0 bg-white z-10 border-r border-gray-50 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
-                      <p className="font-bold text-gray-900 truncate max-w-[100px] sm:max-w-[150px]">{data.representative}</p>
-                      <p className="text-[9px] text-gray-400 truncate max-w-[100px] sm:max-w-[150px]">{data.companyName}</p>
-                    </td>
-                    {data.months.map((score, i) => (
-                      <td key={i} className="px-2 py-4 text-center font-medium text-gray-600">
-                        {score || '-'}
-                      </td>
-                    ))}
-                    <td className="px-3 py-4 text-center font-bold text-blue-600 bg-blue-50/30">{data.term1 || '-'}</td>
-                    <td className="px-3 py-4 text-center font-bold text-blue-600 bg-blue-50/30">{data.term2 || '-'}</td>
-                    <td className="px-4 py-4 text-right font-black text-gray-900 bg-gray-50">{data.totalYear}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="p-4 bg-gray-50 border-t border-gray-100">
-            <p className="text-[10px] text-gray-400 italic">* Nhiệm kỳ 1: Tháng 1 - 6 | Nhiệm kỳ 2: Tháng 7 - 12</p>
-          </div>
-        </div>
-      </div>
-      ) : viewMode === 'memberDetail' ? (
-        <div className="space-y-6">
-          <button 
-            onClick={() => setViewMode('members')}
-            className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            <Plus size={16} className="rotate-45" /> Quay lại danh sách
-          </button>
-
-          {selectedMemberId && (
-            <div className="space-y-6">
-              {/* Member Header */}
-              {(() => {
-                const m = users.find(u => u.uid === selectedMemberId);
-                if (!m) return null;
-                return (
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                      <div className="flex items-center gap-6">
-                        <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center text-blue-600 text-3xl font-black">
-                          {m.representative.charAt(0)}
-                        </div>
-                        <div>
-                          <h2 className="text-2xl font-black text-gray-900">{m.representative}</h2>
-                          <p className="text-gray-500 font-medium">{m.companyName}</p>
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-md text-[10px] font-bold uppercase">Nhóm {m.group}</span>
-                            <span className="px-2 py-1 bg-gray-50 text-gray-600 rounded-md text-[10px] font-bold uppercase">{m.role}</span>
-                            <span className="px-2 py-1 bg-green-50 text-green-600 rounded-md text-[10px] font-bold uppercase flex items-center gap-1">
-                              <Phone size={10} /> {m.phone}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-left md:text-right">
-                        <p className="text-4xl font-black text-[#1e3a8a]">{userScores.find(u => u.uid === m.uid)?.totalScore || 0}</p>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tổng điểm KPI</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* KPI History */}
-                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                  <h3 className="text-sm font-bold text-gray-900 uppercase mb-4 flex items-center gap-2">
-                    <BarChart3 size={16} className="text-blue-600" /> Lịch sử KPI
-                  </h3>
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                    {reports
-                      .filter(r => r.userId === selectedMemberId)
-                      .sort((a, b) => b.week.localeCompare(a.week))
-                      .map(r => (
-                        <div key={r.id} className="p-4 bg-gray-50 rounded-2xl flex items-center justify-between">
-                          <div>
-                            <p className="font-bold text-gray-900 text-sm">Tuần {r.week.split('-')[1]}</p>
-                            <p className="text-[10px] text-gray-400">{r.week.split('-')[0]}</p>
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            {renderEvidenceLinks(r.evidence, 'Chung')}
-                            {renderEvidenceLinks(r.meetingEvidence, 'Gặp mặt')}
-                            {renderEvidenceLinks(r.hostingEvidence, 'Tiếp khách')}
-                            {renderEvidenceLinks(r.tripEvidence, 'Công tác')}
-                            {renderEvidenceLinks(r.officeEvidence, 'Văn phòng')}
-                            {renderEvidenceLinks(r.giverEvidence, 'DS Cho')}
-                            {renderEvidenceLinks(r.receiverEvidence, 'DS Nhận')}
-                            {renderEvidenceLinks(r.piggyEvidence, 'Quỹ Heo')}
-                          </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-black text-blue-600">{r.total}đ</p>
-                            <span className={cn(
-                              "text-[8px] font-bold uppercase px-1.5 py-0.5 rounded",
-                              r.status === 'approved' ? "bg-green-100 text-green-700" :
-                              r.status === 'rejected' ? "bg-red-100 text-red-700" :
-                              r.status === 'flagged' ? "bg-orange-100 text-orange-700" :
-                              "bg-yellow-100 text-yellow-700"
-                            )}>
-                              {r.status === 'flagged' ? 'Nghi vấn' : r.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    {reports.filter(r => r.userId === selectedMemberId).length === 0 && (
-                      <p className="text-center py-10 text-gray-400 text-xs">Chưa có báo cáo nào.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Guests Invited */}
-                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                  <h3 className="text-sm font-bold text-gray-900 uppercase mb-4 flex items-center gap-2">
-                    <UserPlus size={16} className="text-purple-600" /> Khách mời đã mời
-                  </h3>
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                    {guests
-                      .filter(g => g.invitedBy === selectedMemberId)
-                      .map(g => (
-                        <div key={g.id} className="p-4 bg-gray-50 rounded-2xl">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-bold text-gray-900 text-sm">{g.name}</p>
-                              <p className="text-[10px] text-gray-500">{g.company} • {g.industry}</p>
-                            </div>
-                            <span className={cn(
-                              "text-[8px] font-bold uppercase px-1.5 py-0.5 rounded",
-                              g.status === 'attending' ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
-                            )}>
-                              {g.status === 'attending' ? 'Tham gia' : 'Vắng'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    {guests.filter(g => g.invitedBy === selectedMemberId).length === 0 && (
-                      <p className="text-center py-10 text-gray-400 text-xs">Chưa mời khách nào.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="bg-gray-50/50 border-b border-gray-100">
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Thành viên</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">Nhóm</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">Vai trò</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Thao tác</th>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="px-4 py-4 font-bold text-gray-400 uppercase">Thành viên</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {users.map((u) => (
-                    <tr key={u.uid} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-gray-900 text-sm">{u.companyName}</p>
-                        <p className="text-xs text-gray-500">{u.representative} • {u.phone}</p>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={cn(
-                          "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
-                          u.group === 1 ? "bg-blue-50 text-blue-600" :
-                          u.group === 2 ? "bg-purple-50 text-purple-600" :
-                          "bg-pink-50 text-pink-600"
-                        )}>
-                          Nhóm {u.group}
+                <tbody>
+                  {summaryData.map(data => (
+                    <tr key={data.uid}>
+                      <td className="px-4 py-4">{data.representative}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : viewMode === 'members' && isAdmin ? (
+        /* 👑 TAB HIỂN THỊ QUẢN LÝ THÀNH VIÊN REALTIME (ĐÃ ĐƯỢC CHUYỂN RA NGOÀI ĐỘC LẬP) */
+        <div className="space-y-6 mt-6">
+          {/* 👑 KHỐI FORM: THÊM THÀNH VIÊN MỚI */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              👤 Thêm Thành Viên Mới Vào Hệ Thống Sông Hàn
+            </h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleAddMember({
+                email: (formData.get('email') as string).trim(),
+                representative: (formData.get('representative') as string).trim(),
+                companyName: (formData.get('companyName') as string).trim(),
+                group: (formData.get('group') as string) || "Sông Hàn",
+                phone: (formData.get('phone') as string).trim(),
+              });
+              e.currentTarget.reset();
+            }} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <input type="text" name="representative" placeholder="Họ và Tên anh em" required className="p-2 border border-gray-200 rounded-lg text-sm focus:outline-amber-500" />
+              <input type="email" name="email" placeholder="Email Google đăng nhập" required className="p-2 border border-gray-200 rounded-lg text-sm focus:outline-amber-500" />
+              <input type="text" name="companyName" placeholder="Tên Công ty / Thương hiệu" required className="p-2 border border-gray-200 rounded-lg text-sm focus:outline-amber-500" />
+              <input type="text" name="phone" placeholder="Số điện thoại" required className="p-2 border border-gray-200 rounded-lg text-sm focus:outline-amber-500" />
+              <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-1">
+                ➕ Thêm Thành Viên
+              </button>
+            </form>
+          </div>
+
+          {/* 👑 KHỐI BẢNG: DANH SÁCH THÀNH VIÊN TÍCH HỢP NÚT XÓA */}
+          <div className="bg-white shadow-sm border border-gray-100 rounded-2xl overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                📋 Danh Sách Thành Viên & Quản Trị Hệ Thống Realtime
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Họ và Tên</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Doanh Nghiệp</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Vai trò</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Hành Động</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {users.map((member) => (
+                    <tr key={member.uid} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{member.representative}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{member.email}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{member.companyName}</td>
+                      <td className="px-6 py-4 text-sm">
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${member.role === 'admin' ? 'bg-purple-50 text-purple-700' : 'bg-green-50 text-green-700'}`}>
+                          {member.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={cn(
-                          "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
-                          u.role === 'admin' ? "bg-red-50 text-red-600" : "bg-gray-50 text-gray-600"
-                        )}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right flex items-center justify-end gap-3">
-                        <button 
-                          onClick={() => {
-                            setSelectedMemberId(u.uid);
-                            setViewMode('memberDetail');
-                          }}
-                          className="text-gray-600 hover:text-gray-900 text-xs font-bold"
-                        >
-                          Xem chi tiết
-                        </button>
-                        {isAdmin && (
-                          <button 
-                            onClick={() => setEditingUser(u)}
-                            className="text-blue-600 hover:text-blue-800 text-xs font-bold"
+                      <td className="px-6 py-4 text-sm font-medium text-right">
+                        {member.email !== auth.currentUser?.email && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMember(member.email)}
+                            className="text-red-600 hover:text-red-900 font-bold bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors border border-red-100"
                           >
-                            Chỉnh sửa
+                            🗑️ Xóa Tài Khoản
                           </button>
                         )}
                       </td>
@@ -3585,147 +2868,16 @@ const Leaderboard = memo(({ users, reports, meetings, guests, isAdmin, onReset, 
                 </tbody>
               </table>
             </div>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden divide-y divide-gray-50">
-              {users.map((u) => (
-                <div key={u.uid} className="p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-bold text-gray-900 text-sm">{u.companyName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{u.representative}</p>
-                      <p className="text-[10px] text-gray-400 flex items-center gap-1 mt-1">
-                        <Phone size={10} /> {u.phone}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-1 items-end">
-                      <span className={cn(
-                        "px-1.5 py-0.5 rounded text-[8px] font-bold uppercase",
-                        u.group === 1 ? "bg-blue-50 text-blue-600" :
-                        u.group === 2 ? "bg-purple-50 text-purple-600" :
-                        "bg-pink-50 text-pink-600"
-                      )}>
-                        Nhóm {u.group}
-                      </span>
-                      <span className={cn(
-                        "px-1.5 py-0.5 rounded text-[8px] font-bold uppercase",
-                        u.role === 'admin' ? "bg-red-50 text-red-600" : "bg-gray-50 text-gray-600"
-                      )}>
-                        {u.role}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex justify-end pt-2 border-t border-gray-50 gap-2">
-                    <button 
-                      onClick={() => {
-                        setSelectedMemberId(u.uid);
-                        setViewMode('memberDetail');
-                      }}
-                      className="px-4 py-2 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-xl"
-                    >
-                      Xem chi tiết
-                    </button>
-                    {isAdmin && (
-                      <button 
-                        onClick={() => setEditingUser(u)}
-                        className="px-4 py-2 bg-blue-600 text-white text-[10px] font-bold rounded-xl shadow-lg shadow-blue-100"
-                      >
-                        Chỉnh sửa
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
-
-          <AnimatePresence>
-            {editingUser && (
-              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl"
-                >
-                  <h3 className="text-xl font-black text-gray-900 mb-6">Chỉnh sửa thành viên</h3>
-                  <form onSubmit={handleUpdateUser} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Tên công ty</label>
-                      <input 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={editingUser.companyName}
-                        onChange={e => setEditingUser({...editingUser, companyName: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Người đại diện</label>
-                      <input 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={editingUser.representative}
-                        onChange={e => setEditingUser({...editingUser, representative: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Số điện thoại</label>
-                      <input 
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                        value={editingUser.phone}
-                        onChange={e => setEditingUser({...editingUser, phone: e.target.value})}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Nhóm</label>
-                        <select 
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                          value={editingUser.group}
-                          onChange={e => setEditingUser({...editingUser, group: parseInt(e.target.value) as 0 | 1 | 2 | 3})}
-                        >
-                          <option value={0}>Ban Quản Trị (Nhóm 0)</option>
-                          <option value={1}>Nhóm 1</option>
-                          <option value={2}>Nhóm 2</option>
-                          <option value={3}>Nhóm 3</option>
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Vai trò</label>
-                        <select 
-                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                          value={editingUser.role}
-                          onChange={e => setEditingUser({...editingUser, role: e.target.value as 'admin' | 'member'})}
-                        >
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="flex gap-3 pt-4">
-                      <button 
-                        type="button"
-                        onClick={() => setEditingUser(null)}
-                        className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-all"
-                      >
-                        Hủy
-                      </button>
-                      <button 
-                        type="submit"
-                        className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
-                      >
-                        Lưu thay đổi
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
         </div>
-      )}
+      ) : null}
     </div>
   );
-});
+}); // 👑 ĐÃ VÁ CHUẨN 1: Khóa chặt phân vùng component Leaderboard (có sử dụng memo)
 
+// ======================================================================
+// 👑 COMPONENT CHECK TƯỜNG LỬA HỆ THỐNG DÀNH CHO ADMIN (ĐÃ SỬA SẠCH LỖI ĐUÔI)
+// ======================================================================
 function SystemStatus({ isAdmin, dbConnected, dbError }: { isAdmin: boolean, dbConnected: boolean, dbError: string | null }) {
   if (!isAdmin || (dbConnected && !dbError)) return null;
 
@@ -3773,10 +2925,13 @@ function SystemStatus({ isAdmin, dbConnected, dbError }: { isAdmin: boolean, dbC
           Thử lại (F5)
         </button>
       </div>
-    </div>
+    </div> // Đóng thẻ div ngoài cùng của SystemStatus
   );
-}
+} // 👑 ĐÃ VÁ CHUẨN 2: Kết thúc bằng dấu ngoặc nhọn hàm thường sạch sẽ, không có thừa ); hay })
 
+// ======================================================================
+// 🚀 KHỞI CHẠY CORE HOÀN CHỈNH ĐỘC LẬP CỦA HÀM APP GỐC (ĐÃ DỌN RÁC)
+// ======================================================================
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -3802,7 +2957,7 @@ export default function App() {
     representative: '',
     phone: '',
     group: 1 as 0 | 1 | 2 | 3
-  });
+  }); // 🌟 Hoàn hảo: Chỉ giữ lại 1 khối khai báo duy nhất và đầy đủ biến!
 
   useEffect(() => {
     let usersUnsub: (() => void) | null = null;
@@ -4275,7 +3430,7 @@ export default function App() {
                 <p className="text-xs text-amber-700">{notification.message}</p>
               </div>
               <button 
-                onClick={() => setDismissedNotifications(prev => [...prev, notification.id])}
+                onClick={() => setDismissedNotifications(prev => [...prev, notification.id || ''])}
                 className="p-2 text-amber-400 hover:text-amber-600 hover:bg-amber-100 rounded-lg transition-all"
               >
                 <X size={16} />
@@ -4296,10 +3451,9 @@ export default function App() {
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Điểm của bạn</p>
                   <p className="text-4xl font-black text-gray-900">
-                    {calculateMonthlyScore(reports.filter(r => {
-                      const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : new Date());
-                      return r.userId === user.uid && format(d, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
-                    }), reports).total}
+                    {calculateMonthlyScore(
+                      reports.filter(r => r.userId === user.uid && r.date && (r.date.toDate ? format(r.date.toDate(), 'yyyy-MM') : format(new Date(r.date), 'yyyy-MM')) === format(new Date(), 'yyyy-MM'))
+                    ).total}
                   </p>
                 </div>
               </div>

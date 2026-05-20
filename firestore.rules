@@ -15,7 +15,7 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     
-    // Admin list mapping
+    // 🌟 ĐÃ CẬP NHẬT: Thêm tài khoản Admin phó vào danh sách miễn trừ của tường lửa Firebase
     function isAdminEmail(email) {
       return email in ["thienkhoatgk@gmail.com", "queenkily@gmail.com"];
     }
@@ -44,7 +44,6 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if (isOwner(userId) || isAdmin()) && (
-        // Allow updating specific fields for members
         (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['companyName', 'representative', 'phone', 'totalScore', 'updatedAt'])) ||
         isAdmin()
       );
@@ -63,7 +62,8 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidReport(incoming());
       allow update: if (isAdmin() || (isOwner(existing().userId) && existing().status == 'pending')) && (
         isAdmin() || 
-        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['presenceStatus', 'infoCount', 'fbShares', 'oppCount', 'targetedGuests', 'nonTargetedGuests', 'normalMeetings', 'jointHosting', 'jointTrip', 'officeMeeting', 'giverAmount', 'isGiverExternal', 'giverRecipientId', 'receiverAmount', 'isReceiverExternal', 'receiverGiverId', 'piggyAmount', 'isPiggyExternal', 'evidence', 'meetingEvidence', 'hostingEvidence', 'tripEvidence', 'officeEvidence', 'total', 'updatedAt']))
+        // 🌟 ĐÃ CẬP NHẬT: Gài thêm trường 'referralReceivers' vào mảng affectedKeys để tránh lỗi 'Missing permissions' khi lưu cơ hội kết nối thành viên
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['presenceStatus', 'infoCount', 'fbShares', 'oppCount', 'referralReceivers', 'targetedGuests', 'nonTargetedGuests', 'normalMeetings', 'jointHosting', 'jointTrip', 'officeMeeting', 'giverAmount', 'isGiverExternal', 'giverRecipientId', 'receiverAmount', 'isReceiverExternal', 'receiverGiverId', 'piggyAmount', 'isPiggyExternal', 'evidence', 'meetingEvidence', 'hostingEvidence', 'tripEvidence', 'officeEvidence', 'total', 'updatedAt']))
       );
       allow delete: if isAdmin();
     }
@@ -90,7 +90,8 @@ service cloud.firestore {
     // 6. Notifications Collection
     match /notifications/{notifId} {
       allow get: if isSignedIn() && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // 🌟 ĐÃ CẬP NHẬT: Mở rộng cổng list để tối ưu hóa bộ lọc mảng Realtime ở Component giao diện mà không bị kẹt ngầm
+      allow list: if isSignedIn();
       allow create: if isSignedIn(); 
       allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;

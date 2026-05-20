@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">KPI Song Han</string>
+    <string name="title_activity_main">KPI Song Han</string>
+    <string name="package_name">online.kpissonghan.app</string>
+    <string name="custom_url_scheme">online.kpissonghan.app</string>
+</resources>
