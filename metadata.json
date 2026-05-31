@@ -1,14 +1,5 @@
 {
-  "manifest_version": 3,
   "name": "KPI Sông Hàn Construction",
-  "version": "1.0.0",
   "description": "Hệ thống chấm điểm KPI tự động cho Hội Xây Dựng Sông Hàn",
-  "permissions": [
-    "storage",
-    "notifications"
-  ],
-  "action": {
-    "default_popup": "index.html",
-    "default_icon": "assets/trophy.png"
-  }
+  "requestFramePermissions": []
 }

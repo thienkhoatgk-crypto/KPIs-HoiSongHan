@@ -69,23 +69,6 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "company", "industry", "phone", "status", "invitedBy"]
-    },
-    "Mail": {
-      "title": "Mail",
-      "description": "Bản ghi gửi email tự động (Trigger Email Extension)",
-      "type": "object",
-      "properties": {
-        "to": { "type": "string", "format": "email" },
-        "message": {
-          "type": "object",
-          "properties": {
-            "subject": { "type": "string" },
-            "html": { "type": "string" }
-          }
-        },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["to", "message", "createdAt"]
     }
   },
   "firestore": {
@@ -104,10 +87,6 @@
     "/guests/{guestId}": {
       "schema": "Guest",
       "description": "Danh sách khách mời"
-    },
-    "/mail/{mailId}": {
-      "schema": "Mail",
-      "description": "Bản ghi email để Trigger Email extension gửi đi"
     }
   }
 }
