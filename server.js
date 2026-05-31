@@ -1,11 +1,9 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-process.env.NODE_ENV = "production";
 
 app.use(express.json());
 
@@ -20,16 +18,14 @@ app.post("/api/gemini/chat", async (req, res) => {
     const { messages, systemInstruction } = req.body;
 
     // 🌟 ĐỒNG BỘ LỊCH SỬ CHAT: Chuyển đổi mảng tin nhắn từ Client sang định dạng chuẩn của Google SDK
-    // Đảm bảo giữ nguyên luồng trò chuyện trước đó của thành viên
     const formattedContents = messages.map((msg) => ({
       role: msg.role === "model" ? "model" : "user",
       parts: [{ text: msg.text || "" }],
     }));
 
-    // Sử dụng đúng cú pháp generateContent cho mảng lịch sử của SDK @google/genai mới nhất
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash", 
-      contents: formattedContents, // 🌟 Truyền toàn bộ lịch sử thay vì chỉ truyền câu cuối
+      contents: formattedContents,
       config: {
         systemInstruction: systemInstruction || "You are a helpful assistant for KPI Sông Hàn Construction.",
       }
@@ -42,25 +38,13 @@ app.post("/api/gemini/chat", async (req, res) => {
   }
 });
 
-// Cấu hình Vite middleware phục vụ file tĩnh
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true, allowedHosts: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-  
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server is running on port ${PORT}`);
-  });
-}
+// Chạy ứng dụng từ thư mục dist (bản build production)
+const distPath = path.join(process.cwd(), 'dist');
+app.use(express.static(distPath));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
 
-startServer();
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server is running on port ${PORT}`);
+});
