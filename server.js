@@ -5,6 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+process.env.NODE_ENV = "production";
 
 app.use(express.json());
 
@@ -45,7 +46,7 @@ app.post("/api/gemini/chat", async (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
