@@ -9,6 +9,19 @@ export interface UserProfile {
   totalScore: number;
   bonusNextMonth?: number;
   cashBonus?: number;
+  status?: 'active' | 'paused' | 'deleted';
+}
+
+export interface Invitation {
+  id?: string;
+  email: string;
+  companyName: string;
+  representative: string;
+  phone: string;
+  group: 0 | 1 | 2 | 3;
+  status: 'pending' | 'accepted';
+  createdAt: any; // Timestamp
+  createdBy: string;
 }
 
 export interface KPIReport {
@@ -18,14 +31,17 @@ export interface KPIReport {
   date: any; // Timestamp
   
   // Presence
-  presenceStatus: 'present' | 'excused' | 'unexcused' | 'late';
+  presenceStatus: 'present' | 'excused' | 'unexcused' | 'late' | 'registered_present' | 'registered_excused';
   
   // Info
   infoCount: number;
   fbShares: number;
   
   // Opportunities
-  oppCount: number;
+  internalOppCount?: number;
+  externalOppCount?: number;
+  oppCount?: number; // legacy
+  oppParticipantIds?: string[];
   
   // Guests
   targetedGuests: number;
@@ -53,7 +69,9 @@ export interface KPIReport {
 
   // Bonus & Penalty
   bonusPoints: number;
+  bonusReason?: string;
   penaltyPoints: number;
+  penaltyReason?: string;
 
   total: number;
   updatedAt?: any; // Timestamp
@@ -112,20 +130,6 @@ export interface AppNotification {
   date?: any;
 }
 
-export interface MonthlySummary {
-  id?: string;
-  monthKey: string; // YYYY-MM
-  userId: string;
-  representative: string;
-  companyName: string;
-  group: number;
-  totalScore: number;
-  bonusNextMonth: number;
-  cashBonus: number;
-  reportCount: number;
-  createdAt: any;
-}
-
 export const KPI_LEVELS = {
   GIVER: [
     { label: 'Nội bộ < 10tr', points: 5 },
@@ -145,4 +149,110 @@ export const KPI_LEVELS = {
     { label: 'Bên ngoài - 2 triệu', points: 20 }, // 15 + 5 bonus
     { label: 'Bên ngoài - 5 triệu', points: 20 }, // 15 + 5 bonus
   ]
+};
+
+export interface KPISettings {
+  presence: {
+    onTime: number;
+    late: number;
+    absent: number;
+    excused: number;
+  };
+  info: {
+    requiredCount: number;
+    points: number;
+  };
+  facebook: {
+    requiredCount: number;
+    points: number;
+  };
+  guests: {
+    targeted: number;
+    nonTargeted: number;
+  };
+  oneToOne: {
+    normal: number;
+    jointHosting: number;
+    jointTrip: number;
+    officeMeeting: number;
+  };
+  opportunity: {
+    internal: number;
+    external: number;
+  };
+  giverThresholds: {
+    level1Points: number; // < 50tr
+    level2Points: number; // 50tr - 100tr
+    level3Points: number; // 100tr - 300tr
+    level4Points: number; // 300tr - 1ty
+    level5Points: number; // > 1ty
+    level5Bonus: number; // Bonus cash for next month
+  };
+  piggyBank: {
+    internalMin: number; // min percentage or fixed? The user said "mức tối thiểu" for internal, maybe percentage? Usually 3%
+    internalMax: number; 
+    externalLevel1: number; // Threshold 1
+    externalLevel1Points: number;
+    externalLevel2: number; // Threshold 2
+    externalLevel2Points: number;
+    externalLevel3: number; // Threshold 3
+    externalLevel3Points: number;
+    externalLevel4: number; // Threshold 4
+    externalLevel4Points: number;
+  };
+  threshold: number; // 35 default
+  kpiLevels: typeof KPI_LEVELS;
+}
+
+export const DEFAULT_KPI_SETTINGS: KPISettings = {
+  presence: {
+    onTime: 5,
+    late: -2,
+    absent: -5,
+    excused: 0
+  },
+  info: {
+    requiredCount: 3,
+    points: 5
+  },
+  facebook: {
+    requiredCount: 3,
+    points: 5
+  },
+  guests: {
+    targeted: 5,
+    nonTargeted: 2
+  },
+  oneToOne: {
+    normal: 2,
+    jointHosting: 5,
+    jointTrip: 5,
+    officeMeeting: 2
+  },
+  opportunity: {
+    internal: 5,
+    external: 5
+  },
+  giverThresholds: {
+    level1Points: 5,
+    level2Points: 10,
+    level3Points: 15,
+    level4Points: 20,
+    level5Points: 25,
+    level5Bonus: 500000
+  },
+  piggyBank: {
+    internalMin: 3, // 3%
+    internalMax: 5, // 5%
+    externalLevel1: 2000000,
+    externalLevel1Points: 5,
+    externalLevel2: 5000000,
+    externalLevel2Points: 10,
+    externalLevel3: 10000000,
+    externalLevel3Points: 15,
+    externalLevel4: 20000000,
+    externalLevel4Points: 20
+  },
+  threshold: 35,
+  kpiLevels: KPI_LEVELS
 };
