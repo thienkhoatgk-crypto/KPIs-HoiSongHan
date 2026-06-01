@@ -2,70 +2,122 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ===============================================================
-    // HÀM KIỂM TRA HỖ TRỢ
-    // ===============================================================
-    
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    // Chỉ Admin (với Email của anh Khoa) mới có quyền ghi/xóa mọi thứ
-    function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.email == "thienkhoatgk@gmail.com" ||
-         request.auth.token.email == "queenkily@gmail.com");
-    }
-
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    // Kiểm tra định dạng báo cáo khớp với App Mobile
-    function isValidReport(data) {
-      return data.keys().hasAll(['userId', 'week', 'total']) &&
-             data.userId is string &&
-             // Khớp với định dạng W15-2026 trong code của anh
-             data.week.matches("^W\\d{1,2}-\\d{4}$");
-    }
-
-    // ===============================================================
-    // CÁC QUY TẮC TRUY CẬP (RULES)
-    // ===============================================================
-
-    // Mặc định: Mọi người đã đăng nhập đều được đọc, nhưng chỉ Admin mới được xóa
+    // --- MASTER CATCH-ALL (DEFAULT DENY) ---
     match /{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read, write: if false;
     }
 
-    // Quy tắc cho thành viên
+    // --- GLOBAL HELPERS ---
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function isAdminEmail(email) {
+      return email in ["thienkhoatgk@gmail.com", "queenkily@gmail.com"];
+    }
+    
+    function isAdmin() { 
+      return isSignedIn() && isAdminEmail(request.auth.token.email);
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- COLLECTION RULES ---
+
+    // 1. Users Collection
     match /users/{userId} {
-      // Hội viên tự tạo profile của mình khi đăng ký lần đầu
-      allow create: if isOwner(userId);
-      // Chỉ Admin hoặc chính chủ mới được sửa thông tin cá nhân
-      allow update: if isAdmin() || isOwner(userId);
-    }
-
-    // Quy tắc cho báo cáo KPI
-    match /reports/{reportId} {
-      // Cho phép hội viên gửi báo cáo của chính họ
-      allow create: if isAuthenticated() && 
-                   request.resource.data.userId == request.auth.uid && 
-                   isValidReport(request.resource.data);
+      function isValidUser(data) {
+        return data.keys().hasAny(['uid', 'email', 'companyName', 'representative', 'group', 'role', 'phone']) &&
+               data.uid == request.auth.uid &&
+               data.email is string &&
+               data.companyName is string &&
+               data.role in ['admin', 'member'];
+      }
       
-      // Chỉ Admin mới được sửa hoặc xóa báo cáo đã gửi để đảm bảo minh bạch
-      allow update, delete: if isAdmin();
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) && (
+        (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['companyName', 'representative', 'phone', 'totalScore', 'updatedAt'])) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
-    // Quy tắc cho lịch họp và khách mời
+    // 2. Reports Collection
+    match /reports/{reportId} {
+      function isValidReport(data) {
+        return data.keys().hasAll(['userId', 'week', 'date', 'total']) &&
+               data.userId == request.auth.uid &&
+               isValidId(data.userId);
+      }
+      
+      // ✅ SỬA: Bổ sung đầy đủ tất cả fields mà App.tsx gửi trong reportData
+      function allowedMemberFields() {
+        return [
+          'presenceStatus', 'infoCount', 'fbShares', 'oppCount',
+          'referralReceivers', 'targetedGuests', 'nonTargetedGuests',
+          'normalMeetings', 'jointHosting', 'jointTrip', 'officeMeeting',
+          'meetingParticipantIds', 'hostingParticipantIds', 'tripParticipantIds', 'officeParticipantIds',
+          'giverAmount', 'isGiverExternal', 'giverRecipientId', 'giverEvidence',
+          'receiverAmount', 'isReceiverExternal', 'receiverGiverId', 'receiverEvidence',
+          'piggyAmount', 'isPiggyExternal', 'piggyEvidence',
+          'bonusPoints', 'penaltyPoints',
+          'evidence', 'meetingEvidence', 'hostingEvidence', 'tripEvidence', 'officeEvidence',
+          'total', 'updatedAt', 'lastUpdatedBy', 'status', 'adminNote'
+        ];
+      }
+      
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidReport(incoming());
+      allow update: if (isAdmin() || (isOwner(existing().userId) && existing().status == 'pending')) && (
+        isAdmin() || 
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(allowedMemberFields()))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 3. Meetings Collection
     match /meetings/{meetingId} {
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
+    // 4. Guests Collection
     match /guests/{guestId} {
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || request.auth.uid == resource.data.invitedBy;
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().invitedBy == request.auth.uid;
+      allow update, delete: if isAdmin() || (isSignedIn() && existing().invitedBy == request.auth.uid);
+    }
+
+    // 5. Monthly Summaries Collection
+    match /monthly_summaries/{summaryId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 6. Notifications Collection
+    match /notifications/{notifId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn();
+      allow create: if isSignedIn(); 
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // 7. Mail Collection
+    match /mail/{mailId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    // 8. Connection Test
+    match /test/connection {
+      allow get: if isSignedIn();
     }
   }
 }
