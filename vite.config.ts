@@ -4,9 +4,15 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: './', // 🌟 Giúp sửa lỗi vỡ giao diện CSS dọc
+  base: './',
   server: {
-    allowedHosts: true, // 🌟 Giúp sửa lỗi Blocked Host tên miền .online
+    allowedHosts: ["kpissonghan.online", "kpissonghan.web.app", "kpissonghan--kpissonghan.asia-southeast1.hosted.app", "localhost", "127.0.0.1"],
     port: 3000,
+    host: true
   },
+  preview: {
+    allowedHosts: ["kpissonghan.online", "kpissonghan.web.app", "kpissonghan--kpissonghan.asia-southeast1.hosted.app", "localhost", "127.0.0.1"],
+    port: 3000,
+    host: true
+  }
 });
