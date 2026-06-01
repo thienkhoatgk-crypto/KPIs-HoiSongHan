@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
@@ -34,10 +33,6 @@ app.post("/api/gemini/chat", async (req, res) => {
     // Send the last message
     const lastMessage = messages[messages.length - 1].text;
     
-    // Optionally include history if needed, but for simplicity we can just send the content
-    // The @google/genai SDK history management is more robust if we use it correctly
-    // But for a simple chat proxy:
-    
     const response = await chat.sendMessage({ message: lastMessage });
     res.json({ text: response.text });
   } catch (error) {
@@ -46,25 +41,13 @@ app.post("/api/gemini/chat", async (req, res) => {
   }
 });
 
-// Vite middleware setup
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+// Production: serve static files from dist folder directly (NO Vite middleware)
+const distPath = path.join(process.cwd(), 'dist');
+app.use(express.static(distPath));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
