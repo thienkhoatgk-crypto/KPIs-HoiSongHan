@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { KPISettings } from '../types';
+import { KPISettings, DEFAULT_KPI_SETTINGS } from '../types';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { format } from 'date-fns';
-import { Settings, Save, AlertCircle } from 'lucide-react';
+import { Settings, Save, AlertCircle, Lock, Unlock } from 'lucide-react';
 
 export default function KPISettingsView({ currentSettings }: { currentSettings: KPISettings }) {
   const [settings, setSettings] = useState<KPISettings>(currentSettings);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,11 +18,25 @@ export default function KPISettingsView({ currentSettings }: { currentSettings: 
     setIsSaving(true);
     try {
       const currentMonthKey = format(new Date(), 'yyyy_MM');
-      await setDoc(doc(db, 'kpi_settings', currentMonthKey), settings);
+      
+      // Merge with DEFAULT_KPI_SETTINGS to ensure all keys are present
+      const mergedSettings = {
+        ...DEFAULT_KPI_SETTINGS,
+        ...settings,
+        piggyBank: {
+          ...DEFAULT_KPI_SETTINGS.piggyBank,
+          ...(settings.piggyBank || {})
+        }
+      };
+
+      // Strip any undefined properties that Firestore rejects
+      const cleanSettings = JSON.parse(JSON.stringify(mergedSettings));
+
+      await setDoc(doc(db, 'kpi_settings', currentMonthKey), cleanSettings);
       alert('Đã lưu cấu hình KPI!');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Có lỗi xảy ra khi lưu cấu hình.');
+      alert('Có lỗi xảy ra khi lưu cấu hình: ' + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -34,6 +51,52 @@ export default function KPISettingsView({ currentSettings }: { currentSettings: 
       }
     }));
   };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === 'songhan20261@1A2B') {
+      setIsAuthenticated(true);
+      setPasswordError('');
+    } else {
+      setPasswordError('Mật khẩu không chính xác!');
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="bg-white p-6 md:p-10 rounded-[2.5rem] border border-gray-100 shadow-sm max-w-md mx-auto mt-10">
+        <div className="flex flex-col items-center justify-center space-y-6 text-center">
+          <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center">
+            <Lock size={32} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black text-gray-900">Bảo mật Cấu Hình</h2>
+            <p className="text-sm text-gray-500 mt-2">Vui lòng nhập mật khẩu quản trị để xem và chỉnh sửa cấu hình KPI</p>
+          </div>
+          <form onSubmit={handleLogin} className="w-full space-y-4">
+            <div>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={e => setPasswordInput(e.target.value)}
+                placeholder="Nhập mật khẩu..."
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-center"
+              />
+              {passwordError && (
+                <p className="text-xs text-red-600 mt-2 font-bold">{passwordError}</p>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="w-full py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all flex items-center justify-center gap-2"
+            >
+              <Unlock size={18} /> Mở khóa
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white p-6 md:p-10 rounded-[2.5rem] border border-gray-100 shadow-sm max-w-4xl mx-auto">
@@ -197,59 +260,172 @@ export default function KPISettingsView({ currentSettings }: { currentSettings: 
           </div>
         </div>
 
-        {/* Quỹ heo RECEIVER */}
+        {/* Piggy Bank / Receiver Limits */}
         <div>
-          <h3 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b border-gray-100">7. Quỹ heo RECEIVER</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b border-gray-100">7. Quỹ heo / RECEIVER</h3>
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Nội bộ: Tối thiểu (%)</label>
-                <input type="number" required value={settings.piggyBank?.internalMin || 0} onChange={e => handleChange('piggyBank', 'internalMin', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Nội bộ: Tối đa (%)</label>
-                <input type="number" required value={settings.piggyBank?.internalMax || 0} onChange={e => handleChange('piggyBank', 'internalMax', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Bên ngoài: Mức 1 (VNĐ)</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel1 || 0} onChange={e => handleChange('piggyBank', 'externalLevel1', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mức 1: NB {'<'} 10tr (Tiền quỹ heo)</label>
+                <input type="number" required value={settings.piggyBank?.level1Piggy || 0} onChange={e => handleChange('piggyBank', 'level1Piggy', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 mb-1">Điểm tương ứng Mức 1</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel1Points || 0} onChange={e => handleChange('piggyBank', 'externalLevel1Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <input type="number" required value={settings.piggyBank?.level1Points || 0} onChange={e => handleChange('piggyBank', 'level1Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Bên ngoài: Mức 2 (VNĐ)</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel2 || 0} onChange={e => handleChange('piggyBank', 'externalLevel2', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mức 2: 10tr - 100tr (Tiền quỹ heo)</label>
+                <input type="number" required value={settings.piggyBank?.level2Piggy || 0} onChange={e => handleChange('piggyBank', 'level2Piggy', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 mb-1">Điểm tương ứng Mức 2</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel2Points || 0} onChange={e => handleChange('piggyBank', 'externalLevel2Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <input type="number" required value={settings.piggyBank?.level2Points || 0} onChange={e => handleChange('piggyBank', 'level2Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Bên ngoài: Mức 3 (VNĐ)</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel3 || 0} onChange={e => handleChange('piggyBank', 'externalLevel3', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mức 3: 100tr - 300tr (Tiền quỹ heo)</label>
+                <input type="number" required value={settings.piggyBank?.level3Piggy || 0} onChange={e => handleChange('piggyBank', 'level3Piggy', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 mb-1">Điểm tương ứng Mức 3</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel3Points || 0} onChange={e => handleChange('piggyBank', 'externalLevel3Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <input type="number" required value={settings.piggyBank?.level3Points || 0} onChange={e => handleChange('piggyBank', 'level3Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Bên ngoài: Mức 4 (VNĐ)</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel4 || 0} onChange={e => handleChange('piggyBank', 'externalLevel4', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mức 4: 300tr - 600tr (Tiền quỹ heo)</label>
+                <input type="number" required value={settings.piggyBank?.level4Piggy || 0} onChange={e => handleChange('piggyBank', 'level4Piggy', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 mb-1">Điểm tương ứng Mức 4</label>
-                <input type="number" required value={settings.piggyBank?.externalLevel4Points || 0} onChange={e => handleChange('piggyBank', 'externalLevel4Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+                <input type="number" required value={settings.piggyBank?.level4Points || 0} onChange={e => handleChange('piggyBank', 'level4Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mức 5: 600tr - 1 tỷ (Tiền quỹ heo)</label>
+                <input type="number" required value={settings.piggyBank?.level5Piggy || 0} onChange={e => handleChange('piggyBank', 'level5Piggy', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Điểm tương ứng Mức 5</label>
+                <input type="number" required value={settings.piggyBank?.level5Points || 0} onChange={e => handleChange('piggyBank', 'level5Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mức 6: Trên 1 tỷ (Tiền quỹ heo)</label>
+                <input type="number" required value={settings.piggyBank?.level6Piggy || 0} onChange={e => handleChange('piggyBank', 'level6Piggy', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Điểm tương ứng Mức 6</label>
+                <input type="number" required value={settings.piggyBank?.level6Points || 0} onChange={e => handleChange('piggyBank', 'level6Points', e.target.value)} className="w-full px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl" />
               </div>
             </div>
           </div>
         </div>
+
+        {/* Lịch Họp */}
+        <section>
+          <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <span className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm">📅</span>
+            Lịch Họp & Đóng/Mở Báo Cáo
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-3xl border border-gray-100">
+            <div className="lg:col-span-3">
+              <label className="block text-xs font-bold text-gray-500 mb-2">Ngày Họp</label>
+              <select
+                value={settings.meetingSchedule?.dayOfWeek ?? 2}
+                onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, dayOfWeek: Number(e.target.value) } as any }))}
+                className="w-full md:w-1/3 px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+              >
+                <option value={1}>Thứ 2</option>
+                <option value={2}>Thứ 3</option>
+                <option value={3}>Thứ 4</option>
+                <option value={4}>Thứ 5</option>
+                <option value={5}>Thứ 6</option>
+                <option value={6}>Thứ 7</option>
+                <option value={0}>Chủ Nhật</option>
+              </select>
+            </div>
+            
+            {/* Start Time */}
+            <div className="space-y-4 bg-white p-4 rounded-2xl border border-gray-100">
+              <h4 className="font-bold text-sm text-green-600">Giờ Mở Báo Cáo</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 mb-1">Giờ (0-23)</label>
+                  <input
+                    type="number" min="0" max="23"
+                    value={settings.meetingSchedule?.startHour ?? 8}
+                    onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, startHour: Number(e.target.value) } as any }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-green-500 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 mb-1">Phút (0-59)</label>
+                  <input
+                    type="number" min="0" max="59"
+                    value={settings.meetingSchedule?.startMinute ?? 30}
+                    onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, startMinute: Number(e.target.value) } as any }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-green-500 font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Late Time */}
+            <div className="space-y-4 bg-white p-4 rounded-2xl border border-gray-100">
+              <h4 className="font-bold text-sm text-orange-600">Giờ Bắt Đầu Tính Trễ</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 mb-1">Giờ (0-23)</label>
+                  <input
+                    type="number" min="0" max="23"
+                    value={settings.meetingSchedule?.lateHour ?? 9}
+                    onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, lateHour: Number(e.target.value) } as any }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 mb-1">Phút (0-59)</label>
+                  <input
+                    type="number" min="0" max="59"
+                    value={settings.meetingSchedule?.lateMinute ?? 10}
+                    onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, lateMinute: Number(e.target.value) } as any }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Close Time */}
+            <div className="space-y-4 bg-white p-4 rounded-2xl border border-gray-100">
+              <h4 className="font-bold text-sm text-red-600">Giờ Đóng Cửa (Chốt Vắng)</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 mb-1">Giờ (0-23)</label>
+                  <input
+                    type="number" min="0" max="23"
+                    value={settings.meetingSchedule?.closeHour ?? 10}
+                    onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, closeHour: Number(e.target.value) } as any }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-red-500 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 mb-1">Phút (0-59)</label>
+                  <input
+                    type="number" min="0" max="59"
+                    value={settings.meetingSchedule?.closeMinute ?? 0}
+                    onChange={(e) => setSettings(prev => ({ ...prev, meetingSchedule: { ...prev.meetingSchedule, closeMinute: Number(e.target.value) } as any }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-red-500 font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-3 text-xs text-gray-500 italic mt-2">
+              * Quy tắc: Nếu thành viên báo cáo trước giờ Mở hoặc sau giờ Đóng, mục Hiện Diện và Khách Mời sẽ tự động gán là Vắng mặt / 0 khách. Nếu báo cáo trong khoảng thời gian từ giờ Tính Trễ đến giờ Đóng, chỉ có thể chọn "Đi Trễ".
+            </div>
+          </div>
+        </section>
 
         {/* Global Limits */}
         <div>

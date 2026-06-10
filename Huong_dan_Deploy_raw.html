@@ -1,0 +1,57 @@
+<p><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><br><strong>Độc lập - Tự do - Hạnh phúc</strong>  </p>
+<hr>
+<h1>TÀI LIỆU HƯỚNG DẪN TRIỂN KHAI HỆ THỐNG</h1>
+<p><em>(Kèm theo Gói bàn giao Mã thực thi: Ban_Giao_Ma_Thuc_Thi_SongHan_Obfuscated.zip)</em></p>
+<p><strong>Kính gửi:</strong> Ban Điều Hành / Bộ phận IT của Hội Xây Dựng Sông Hàn</p>
+<p>Tài liệu này hướng dẫn cách đưa hệ thống Phần mềm Web App Quản lý KPI lên môi trường mạng Internet từ file nén mã thực thi (Deployment Build) đã được Đơn vị phát triển bàn giao.</p>
+<blockquote>
+<p><strong>LƯU Ý BẢO MẬT:</strong>
+File mã thực thi bàn giao là bản Code đã được biên dịch, tối ưu hóa và mã hóa (Obfuscated) nhằm đảm bảo an toàn tuyệt đối, chống dịch ngược và đánh cắp dữ liệu kinh doanh của hệ thống. File này <strong>không thể đọc hiểu hay chỉnh sửa bằng các phần mềm soạn thảo thông thường</strong>, nhưng <strong>hoạt động hoàn hảo 100%</strong> khi được đưa lên máy chủ.</p>
+</blockquote>
+<hr>
+<h2>1. YÊU CẦU MÁY CHỦ (SERVER / HOSTING)</h2>
+<p>Do hệ thống được phát triển theo kiến trúc <strong>SPA (Single Page Application)</strong> công nghệ mới nhất, hệ thống không đòi hỏi máy chủ cấu hình quá phức tạp. Chỉ cần đáp ứng các điều kiện sau:</p>
+<ul>
+<li>Máy chủ Web Hosting thông thường (cPanel / DirectAdmin) hoặc các nền tảng Cloud hiện đại (Google Firebase, Vercel, Netlify).</li>
+<li>Không cần cài đặt PHP hay MySQL (Dữ liệu đã được liên kết với Cloud Database riêng).</li>
+<li>Có hỗ trợ chuyển hướng (URL Rewrite / Fallback) về file <code>index.html</code>.</li>
+</ul>
+<hr>
+<h2>2. HƯỚNG DẪN ĐƯA LÊN MẠNG BẰNG WEB HOSTING (CPANEL)</h2>
+<p>Đây là cách phổ biến nhất nếu Hội đã có sẵn một Web Hosting và Tên miền riêng (ví dụ: <code>kpi.hoisonghan.com</code>).</p>
+<p><strong>Bước 1: Giải nén file bàn giao</strong></p>
+<ol>
+<li>Tải file <code>Ban_Giao_Ma_Thuc_Thi_SongHan_Obfuscated.zip</code> về máy tính.</li>
+<li>Giải nén file này ra. Bên trong bạn sẽ thấy các tệp tin cơ bản như: <code>index.html</code>, thư mục <code>assets</code> (chứa các file mã hóa .js, .css).</li>
+</ol>
+<p><strong>Bước 2: Tải lên máy chủ (Upload)</strong></p>
+<ol>
+<li>Đăng nhập vào trình quản lý Hosting (cPanel hoặc DirectAdmin) của Hội.</li>
+<li>Truy cập vào mục <strong>File Manager</strong> (Quản lý Tệp).</li>
+<li>Mở thư mục gốc của tên miền (thường là <code>public_html</code>).</li>
+<li>Upload toàn bộ các file và thư mục vừa giải nén (bao gồm <code>index.html</code> và <code>assets</code>) vào thẳng thư mục <code>public_html</code> này.</li>
+</ol>
+<p><strong>Bước 3: Cấu hình điều hướng (Rất quan trọng)</strong>
+Vì là ứng dụng SPA, bạn cần tạo một file tên là <code>.htaccess</code> (nằm cùng chỗ với file <code>index.html</code> vừa upload) và dán đoạn mã sau vào để hệ thống không bị lỗi &quot;Not Found&quot; khi F5 (Tải lại trang):</p>
+<pre><code class="language-apache">&lt;IfModule mod_rewrite.c&gt;
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+&lt;/IfModule&gt;
+</code></pre>
+<p><strong>Bước 4: Hoàn tất</strong>
+Truy cập vào tên miền của bạn bằng trình duyệt. Hệ thống đã sẵn sàng hoạt động!</p>
+<hr>
+<h2>3. HƯỚNG DẪN ĐƯA LÊN MẠNG NHANH BẰNG NETLIFY (DÀNH CHO IT)</h2>
+<p>Nếu Hội chưa có máy chủ và muốn đưa lên mạng miễn phí, an toàn nhất:</p>
+<ol>
+<li>Truy cập trang web: <strong><a href="https://app.netlify.com/drop">https://app.netlify.com/drop</a></strong></li>
+<li>Đăng nhập bằng tài khoản Github hoặc Email.</li>
+<li>Cầm thư mục đã được giải nén từ file <code>Ban_Giao_Ma_Thuc_Thi_SongHan_Obfuscated.zip</code> và Kéo Thả (Drag &amp; Drop) thẳng vào vòng tròn trên web Netlify.</li>
+<li>Netlify sẽ tự động cung cấp một đường link để truy cập hệ thống ngay lập tức (Bạn có thể trỏ tên miền riêng vào đường link này sau).</li>
+</ol>
+<hr>
+<p>Nếu có bất kỳ khó khăn nào trong quá trình đưa hệ thống lên mạng, vui lòng liên hệ với Đơn vị phát triển (Tân Gia Khang) để được hỗ trợ chuyên sâu.</p>

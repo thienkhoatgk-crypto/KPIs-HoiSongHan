@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "214853849761",
+    "firebase_url": "https://kpissonghan-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "kpissonghan",
+    "storage_bucket": "kpissonghan.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:214853849761:android:229967316e3ba14de8d6e0",
+        "android_client_info": {
+          "package_name": "online.kpissonghan.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "214853849761-t94iq00nj5u5lr29tvd8mm00lq6gvf8h.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3IuvkAmTAhCt_iOSOVfI93LqNEJYpX2g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "214853849761-t94iq00nj5u5lr29tvd8mm00lq6gvf8h.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

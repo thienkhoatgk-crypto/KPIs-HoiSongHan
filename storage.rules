@@ -1,0 +1,50 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // --- GLOBAL HELPERS ---
+    function isSignedIn() { return request.auth != null; }
+    function isAdminEmail(email) {
+      return email in ['thienkhoatgk@gmail.com', 'queenkily@gmail.com'];
+    }
+    function isAdmin() { 
+      return isSignedIn() && isAdminEmail(request.auth.token.email);
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // --- DIRECTORIES ---
+    
+    // Evidence uploads
+    match /evidence/{userId}/{fileName} {
+      // Anyone logged in can read evidence
+      allow read: if isSignedIn();
+      // Only the owner can upload their evidence. File must be under 5MB and be an image.
+      allow write: if isOwner(userId) 
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      // Only admin can delete evidence
+      allow delete: if isAdmin();
+    }
+    
+    // Avatar uploads
+    match /avatars/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if (isOwner(userId) || isAdmin())
+                   && request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin() || isOwner(userId);
+    }
+    
+    // System backups
+    match /backups/{fileName} {
+      allow read, write, delete: if isAdmin();
+    }
+  }
+}

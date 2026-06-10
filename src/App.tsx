@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { 
   auth, 
   db,
-  signInWithGoogle 
+  signInWithGoogle,
+  signInWithGoogleMobile
 } from './firebase';
 import { 
   onAuthStateChanged, 
@@ -82,9 +83,12 @@ import {
   Camera,
   Upload,
   Eye,
-  HelpCircle
+  HelpCircle,
+  Settings,
+  CalendarMinus
 } from 'lucide-react';
-import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, KPISettings, DEFAULT_KPI_SETTINGS } from './types';
+import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, KPISettings, DEFAULT_KPI_SETTINGS, LeaveRequest } from './types';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { format, startOfWeek, getWeek, startOfMonth, endOfMonth, addDays, isTuesday, lastDayOfMonth, isAfter, startOfDay, isSameDay } from 'date-fns';
 import { cn } from './lib/utils';
 import { writeBatch, getDocs } from 'firebase/firestore';
@@ -95,11 +99,46 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 import Header from './components/Header';
 import KPIInput from './components/KPIInput';
+import SendNotificationModal from './components/SendNotificationModal';
 import Leaderboard from './components/Leaderboard';
+import PeerReviewTab from './components/PeerReviewTab';
+import AIChatBox from './components/AIChatBox';
+import GuestRegistrationModal from './components/GuestRegistrationModal';
+import LeaveRequestModal from './components/LeaveRequestModal';
 import { handleFirestoreError, OperationType } from './lib/firebase-utils';
-import { getReportingStatus, KPI_THRESHOLD } from './lib/kpi';
+import { getReportingStatus, KPI_THRESHOLD, calculateMonthlyScore, formatWeekDisplay } from './lib/kpi';
+import { Capacitor } from '@capacitor/core';
 
 export default function App() {
+  useEffect(() => {
+    // Only apply anti-copy on Web, not on Native Mobile Apps (iOS/Android)
+    if (Capacitor.isNativePlatform()) return;
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey || e.metaKey) && 
+        ['c', 'u', 's', 'p'].includes(e.key.toLowerCase())
+      ) {
+        e.preventDefault();
+      }
+      if (e.key === 'F12') {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const isAdmin = user?.email === 'thienkhoatgk@gmail.com' || user?.email === 'queenkily@gmail.com';
@@ -108,10 +147,14 @@ export default function App() {
   const [reports, setReports] = useState<KPIReport[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showGuestModal, setShowGuestModal] = useState(false);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [editingReport, setEditingReport] = useState<KPIReport | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAdminNotificationModal, setShowAdminNotificationModal] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [dbNotifications, setDbNotifications] = useState<AppNotification[]>([]);
@@ -167,7 +210,7 @@ export default function App() {
                   representative: invData.representative,
                   phone: invData.phone,
                   group: invData.group,
-                  role: 'member',
+                  role: invData.group === 0 ? 'admin' : 'member',
                   totalScore: 0,
                   status: 'active'
                 };
@@ -187,7 +230,23 @@ export default function App() {
 
           // Attach listeners only when authenticated
           usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
-            setUsers(snap.docs.map(d => d.data() as UserProfile));
+            const fetchedUsers = snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+            setUsers(fetchedUsers);
+            
+            // Auto-unpause users who have passed their pausedUntil date
+            fetchedUsers.forEach(async (usr) => {
+              if (usr.status === 'paused' && usr.pausedUntil) {
+                const today = new Date().toISOString().split('T')[0];
+                if (usr.pausedUntil <= today) {
+                  try {
+                    await setDoc(doc(db, 'users', usr.uid), { status: 'active', pausedUntil: null }, { merge: true });
+                  } catch (e) {
+                    console.error("Auto unpause failed:", e);
+                  }
+                }
+              }
+            });
+            
           }, (error) => {
             handleFirestoreError(error, OperationType.GET, 'users');
           });
@@ -210,8 +269,20 @@ export default function App() {
             handleFirestoreError(error, OperationType.GET, 'guests');
           });
 
-          notificationsUnsub = onSnapshot(query(collection(db, 'notifications'), where('userId', '==', u.uid), orderBy('createdAt', 'desc')), (snap) => {
-            setDbNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification)));
+          const leaveReqsUnsub = onSnapshot(collection(db, 'leaveRequests'), (snap) => {
+            setLeaveRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest)));
+          }, (error) => {
+            handleFirestoreError(error, OperationType.GET, 'leaveRequests');
+          });
+
+          notificationsUnsub = onSnapshot(query(collection(db, 'notifications'), where('userId', '==', u.uid)), (snap) => {
+            const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
+            notifs.sort((a, b) => {
+              const dateA = a.createdAt?.toMillis?.() || new Date(a.date || 0).getTime();
+              const dateB = b.createdAt?.toMillis?.() || new Date(b.date || 0).getTime();
+              return dateB - dateA;
+            });
+            setDbNotifications(notifs);
           }, (error) => {
             console.error('Notifications fetch error:', error);
           });
@@ -219,7 +290,19 @@ export default function App() {
           const currentMonthKey = format(new Date(), 'yyyy_MM');
           settingsUnsub = onSnapshot(doc(db, 'kpi_settings', currentMonthKey), (snap) => {
             if (snap.exists()) {
-              setKpiSettings(snap.data() as KPISettings);
+              const dbSettings = snap.data() as Partial<KPISettings>;
+              setKpiSettings(prev => ({
+                ...DEFAULT_KPI_SETTINGS,
+                ...dbSettings,
+                presence: { ...DEFAULT_KPI_SETTINGS.presence, ...(dbSettings.presence || {}) },
+                opportunity: { ...DEFAULT_KPI_SETTINGS.opportunity, ...(dbSettings.opportunity || {}) },
+                guests: { ...DEFAULT_KPI_SETTINGS.guests, ...(dbSettings.guests || {}) },
+                oneToOne: { ...DEFAULT_KPI_SETTINGS.oneToOne, ...(dbSettings.oneToOne || {}) },
+                info: { ...DEFAULT_KPI_SETTINGS.info, ...(dbSettings.info || {}) },
+                facebook: { ...DEFAULT_KPI_SETTINGS.facebook, ...(dbSettings.facebook || {}) },
+                giverThresholds: { ...DEFAULT_KPI_SETTINGS.giverThresholds, ...(dbSettings.giverThresholds || {}) },
+                piggyBank: { ...DEFAULT_KPI_SETTINGS.piggyBank, ...(dbSettings.piggyBank || {}) }
+              }));
             } else {
               setKpiSettings(DEFAULT_KPI_SETTINGS);
             }
@@ -236,6 +319,7 @@ export default function App() {
         setReports([]);
         setMeetings([]);
         setGuests([]);
+        setLeaveRequests([]);
       }
       setLoading(false);
     });
@@ -290,17 +374,31 @@ export default function App() {
     const userReports = reports.filter(r => r.userId === user.uid && r.status === 'approved');
     const latestReport = [...userReports].sort((a, b) => b.week.localeCompare(a.week))[0];
     
-    if (latestReport && latestReport.total < KPI_THRESHOLD) {
-      const notificationId = `low-kpi-${latestReport.week}`;
-      if (!dismissedNotifications.includes(notificationId)) {
-        notifications.push({
-          id: notificationId,
-          type: 'warning',
-          title: 'Cảnh báo hiệu suất KPI',
-          message: `Điểm KPI tuần ${latestReport.week.split('-')[1]} của bạn là ${latestReport.total}, dưới mức mục tiêu ${KPI_THRESHOLD}. Hãy nỗ lực hơn nhé!`,
-          date: latestReport.date?.toDate ? latestReport.date.toDate() : new Date(latestReport.date),
-          read: false
-        });
+    if (latestReport) {
+      if (latestReport.total < 35) {
+        const notificationId = `low-kpi-35-${latestReport.week}`;
+        if (!dismissedNotifications.includes(notificationId)) {
+          notifications.push({
+            id: notificationId,
+            type: 'warning',
+            title: '🚨 Cảnh báo Khẩn: Điểm KPI quá thấp',
+            message: `Điểm KPI ${formatWeekDisplay(latestReport.week)} của bạn là ${latestReport.total}. Theo quy định (dưới 35 điểm): Bạn bị phạt 1.000.000đ và tư cách thành viên sẽ bị tạm ngưng hoặc cho nghỉ hẳn nếu tiếp tục vi phạm.`,
+            date: latestReport.date?.toDate ? latestReport.date.toDate() : new Date(latestReport.date),
+            read: false
+          });
+        }
+      } else if (latestReport.total < 45) {
+        const notificationId = `low-kpi-45-${latestReport.week}`;
+        if (!dismissedNotifications.includes(notificationId)) {
+          notifications.push({
+            id: notificationId,
+            type: 'warning',
+            title: '⚠️ Cảnh báo: Điểm KPI thấp',
+            message: `Điểm KPI ${formatWeekDisplay(latestReport.week)} của bạn là ${latestReport.total}. Theo quy định (dưới 45 điểm): Bạn sẽ phải nộp phạt 500.000đ.`,
+            date: latestReport.date?.toDate ? latestReport.date.toDate() : new Date(latestReport.date),
+            read: false
+          });
+        }
       }
     }
   }
@@ -351,7 +449,7 @@ export default function App() {
     );
   }
 
-  const { isOpen, isLastTuesday } = getReportingStatus(new Date());
+  const { isOpen, isLastTuesday, isFullyLocked, isPresenceOnlyMode } = getReportingStatus(new Date(), kpiSettings);
 
   if (!user) {
     return (
@@ -379,14 +477,18 @@ export default function App() {
           <button 
             onClick={async () => {
               try {
-                 console.log("Đang gọi Google...");
-                 await signInWithGoogle();
-               } catch (error: any) {
-                 alert("Lỗi: " + error.message); // Nó hiện thông báo này là mình biết bệnh ngay
-               }
-             }}
-             className="w-full py-5 bg-[#1e3a8a] text-white font-bold rounded-2xl hover:bg-blue-900 transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95"
-            >
+                console.log("Đang gọi Google...");
+                if (Capacitor.isNativePlatform()) {
+                  await signInWithGoogleMobile();
+                } else {
+                  await signInWithGoogle();
+                }
+              } catch (error: any) {
+                alert("Lỗi: " + error.message);
+              }
+            }}
+            className="w-full py-5 bg-[#1e3a8a] text-white font-bold rounded-2xl hover:bg-blue-900 transition-all flex items-center justify-center gap-3 shadow-xl active:scale-95"
+          >
              <div className="bg-white p-1 rounded-lg">
                 <img 
                   src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" 
@@ -470,36 +572,10 @@ export default function App() {
         notifications={notifications}
         onShowNotifications={() => setShowNotifications(true)}
         onShowGuide={() => setShowGuide(true)}
+        onShowAdminNotificationModal={() => setShowAdminNotificationModal(true)}
       />
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Notification Banner */}
-        <AnimatePresence>
-          {notifications.map(notification => (
-            <motion.div 
-              key={notification.id}
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center gap-4 shadow-sm"
-            >
-              <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center shrink-0">
-                <AlertCircle size={24} />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-bold text-amber-900">{notification.title}</p>
-                <p className="text-xs text-amber-700">{notification.message}</p>
-              </div>
-              <button 
-                onClick={() => setDismissedNotifications(prev => [...prev, notification.id])}
-                className="p-2 text-amber-400 hover:text-amber-600 hover:bg-amber-100 rounded-lg transition-all"
-              >
-                <X size={16} />
-              </button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Left Column: User Stats & Actions */}
@@ -512,27 +588,51 @@ export default function App() {
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Điểm của bạn</p>
                   <p className="text-4xl font-black text-gray-900">
-                    {reports.filter(r => r.userId === user.uid).reduce((sum, r) => sum + r.total, 0)}
+                    {calculateMonthlyScore(reports.filter(r => r.userId === user.uid), reports, kpiSettings).total}
                   </p>
                 </div>
               </div>
               
-              {reports.some(r => r.userId === user.uid && r.week === `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 3 })}`) ? (
-                <div className="w-full py-4 bg-gray-100 text-gray-400 font-bold rounded-2xl flex items-center justify-center gap-2 cursor-not-allowed">
-                  <CheckCircle2 size={20} /> Đã báo cáo tuần này
-                </div>
-              ) : !isOpen && !isLastTuesday && profile?.role !== 'admin' ? (
+              {isFullyLocked && profile?.role !== 'admin' ? (
                 <div className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-100">
-                  <Clock size={20} /> Đã hết hạn báo cáo
+                  <Clock size={20} /> Đang khóa báo cáo
                 </div>
               ) : (
                 <button 
-                  onClick={() => setShowReportModal(true)}
-                  className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                  onClick={() => {
+                    const currentWeek = `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 3 })}`;
+                    const currentWeekReport = reports.find(r => r.userId === user.uid && r.week === currentWeek);
+                    if (currentWeekReport) {
+                      setEditingReport(currentWeekReport);
+                    }
+                    setShowReportModal(true);
+                  }}
+                  className={cn(
+                    "w-full py-4 font-bold rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2",
+                    reports.some(r => r.userId === user.uid && r.week === `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 3 })}`)
+                      ? "bg-green-600 hover:bg-green-700 text-white shadow-green-200"
+                      : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200"
+                  )}
                 >
-                  <PlusCircle size={20} /> Báo cáo KPI tuần này
+                  {reports.some(r => r.userId === user.uid && r.week === `${new Date().getFullYear()}-${getWeek(new Date(), { weekStartsOn: 3 })}`) 
+                    ? <><CheckCircle2 size={20} /> Chỉnh sửa báo cáo tuần này</>
+                    : <><PlusCircle size={20} /> Báo cáo KPI tuần này</>}
                 </button>
               )}
+              <div className="flex gap-3 mt-4">
+                <button
+                  onClick={() => setShowGuestModal(true)}
+                  className="flex-1 py-3 px-2 bg-indigo-50 text-indigo-700 font-bold rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-colors flex flex-col items-center gap-1 text-sm"
+                >
+                  <UserPlus size={20} /> Đăng ký Khách
+                </button>
+                <button
+                  onClick={() => setShowLeaveModal(true)}
+                  className="flex-1 py-3 px-2 bg-orange-50 text-orange-700 font-bold rounded-xl border border-orange-100 hover:bg-orange-100 transition-colors flex flex-col items-center gap-1 text-sm"
+                >
+                  <CalendarMinus size={20} /> Xin phép vắng
+                </button>
+              </div>
             </div>
 
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
@@ -544,8 +644,8 @@ export default function App() {
                   <Info size={16} className="text-blue-600 mt-0.5 shrink-0" />
                   <div className="text-xs text-blue-900 leading-relaxed">
                     <p className="font-bold mb-1">Thời gian báo cáo:</p>
-                    <p>Báo cáo trước <strong>00:00 Thứ 3</strong> hàng tuần.</p>
-                    <p className="mt-1">Họp định kỳ: <strong>Thứ 3 (09:00 - 10:00)</strong>.</p>
+                    <p>Báo cáo trước <strong>00:00 {kpiSettings.meetingSchedule?.dayOfWeek === 0 ? 'Chủ Nhật' : `Thứ ${kpiSettings.meetingSchedule?.dayOfWeek + 1 || 3}`}</strong> hàng tuần.</p>
+                    <p className="mt-1">Họp định kỳ: <strong>{kpiSettings.meetingSchedule?.dayOfWeek === 0 ? 'Chủ Nhật' : `Thứ ${kpiSettings.meetingSchedule?.dayOfWeek + 1 || 3}`} ({kpiSettings.meetingSchedule?.startHour?.toString().padStart(2, '0') || '08'}:{kpiSettings.meetingSchedule?.startMinute?.toString().padStart(2, '0') || '30'})</strong>.</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-7 gap-1 text-center">
@@ -553,8 +653,9 @@ export default function App() {
                     const today = new Date();
                     const start = startOfWeek(today, { weekStartsOn: 1 });
                     const dayDate = addDays(start, i);
-                    const isMeetingDay = i === 1; // T3 is index 1
-                    const { isOpen } = getReportingStatus(dayDate);
+                    const targetDayOfWeek = i === 6 ? 0 : i + 1;
+                    const isMeetingDay = targetDayOfWeek === (kpiSettings.meetingSchedule?.dayOfWeek || 2);
+                    const { isOpen } = getReportingStatus(dayDate, kpiSettings);
                     
                     return (
                       <div key={day} className="space-y-1">
@@ -643,7 +744,7 @@ export default function App() {
                             "bg-yellow-500"
                           )} />
                           <div>
-                            <p className="text-sm font-bold text-gray-900">Tuần {report.week.split('-')[1]}</p>
+                            <p className="text-sm font-bold text-gray-900">{formatWeekDisplay(report.week)}</p>
                             <div className="flex items-center gap-2">
                               <p className="text-[10px] text-gray-400">{report.week.split('-')[0]}</p>
                               {report.lastEditedDate && (
@@ -672,29 +773,42 @@ export default function App() {
                 <Users size={24} className="text-blue-600" /> Bảng xếp hạng Hội viên
               </h2>
             </div>
-            <Leaderboard 
-              users={users} 
-              reports={reports}
-              meetings={meetings}
-              guests={guests}
-              kpiSettings={kpiSettings}
-              isAdmin={isAdmin}
-              onUpdateUser={() => {}} 
-              onReset={() => {
-                setUsers([]);
-                setReports([]);
-                setMeetings([]);
-                setGuests([]);
-                window.location.reload();
-              }}
-              onEditReport={(r) => {
-                setEditingReport(r);
-                setShowReportModal(true);
-              }}
-            />
+            <ErrorBoundary>
+              <Leaderboard 
+                currentUser={profile}
+                users={users} 
+                reports={reports}
+                meetings={meetings}
+                guests={guests}
+                leaveRequests={leaveRequests}
+                kpiSettings={kpiSettings}
+                isAdmin={isAdmin}
+                onUpdateUser={() => {}} 
+                onReset={() => {
+                  setUsers([]);
+                  setReports([]);
+                  setMeetings([]);
+                  setGuests([]);
+                  setLeaveRequests([]);
+                  window.location.reload();
+                }}
+                onEditReport={(r) => {
+                  setEditingReport(r);
+                  setShowReportModal(true);
+                }}
+              />
+            </ErrorBoundary>
           </div>
         </div>
       </main>
+
+      <footer className="w-full text-center py-6 mt-auto border-t border-gray-100 bg-white/50 backdrop-blur-sm">
+        <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider leading-relaxed">
+          @kpissonghan.online được phát triển bởi <br className="block sm:hidden" />
+          <span className="font-bold text-blue-600">Nguyễn Thiện Khoa</span> - Ban Nội Bộ NK9 2026 <span className="hidden sm:inline">-</span><br className="block sm:hidden" />
+          Hotline: <span className="font-bold text-blue-600">0905 987 222</span>
+        </p>
+      </footer>
 
       {/* Report Modal */}
       <AnimatePresence>
@@ -734,6 +848,7 @@ export default function App() {
                   existingReport={editingReport || undefined}
                   reports={reports}
                   users={users}
+                  kpiSettings={kpiSettings}
                   onComplete={() => {
                     setShowReportModal(false);
                     setEditingReport(null);
@@ -742,6 +857,13 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+
+        {showAdminNotificationModal && (
+          <SendNotificationModal
+            users={users}
+            onClose={() => setShowAdminNotificationModal(false)}
+          />
         )}
       </AnimatePresence>
 
@@ -781,7 +903,8 @@ export default function App() {
                   </h3>
                   <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
                     <p className="text-sm text-gray-600 leading-relaxed">
-                      • <span className="font-bold text-blue-700">Hạn chót:</span> Thứ Ba hàng tuần.<br />
+                      • <span className="font-bold text-blue-700">Hạn chót:</span> 09:30 sáng Thứ Ba hàng tuần.<br />
+                      • <span className="font-bold text-blue-700">Khóa hệ thống:</span> Từ 23:59 ngày Thứ Hai tuần cuối tháng đến 12:00 trưa Thứ Ba, hệ thống sẽ KHÓA CHẶT các chức năng báo cáo thành tích. Sáng Thứ Ba tuần cuối tháng (09:00 - 09:30) chỉ được phép báo cáo Hiện diện & Khách mời.<br />
                       • <span className="font-bold text-blue-700">Chu kỳ:</span> Báo cáo theo tuần. Hệ thống tự động tính toán tổng điểm theo tháng.
                     </p>
                   </div>
@@ -805,9 +928,9 @@ export default function App() {
                     <div className="p-4 bg-green-50 rounded-2xl border border-green-100">
                       <h4 className="font-black text-green-900 text-sm mb-2">Cơ hội & Khách mời</h4>
                       <p className="text-xs text-green-700 leading-relaxed">
-                        • Mỗi cơ hội: 4đ (Max 20đ)<br />
+                        • Trao cơ hội: 4đ (Người trao nhận điểm, người nhận không được cộng).<br />
                         • Khách đúng ngành: 10đ<br />
-                        • Khách khác: 5đ (Max 10đ)
+                        • Khách khác: 5đ
                       </p>
                     </div>
                     <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
@@ -815,15 +938,15 @@ export default function App() {
                       <p className="text-xs text-purple-700 leading-relaxed">
                         • Gặp mặt (1-2-1): 1đ<br />
                         • Tiếp khách/Công tác: 2-4đ<br />
-                        • <span className="font-bold">Lưu ý:</span> Phải chọn tên thành viên cùng tham gia.
+                        • <span className="font-bold">Đặc biệt:</span> Cả 2 người cùng nhận số điểm bằng nhau cho lần tương tác này.
                       </p>
                     </div>
                     <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                      <h4 className="font-black text-orange-900 text-sm mb-2">Doanh số (Max 35đ)</h4>
+                      <h4 className="font-black text-orange-900 text-sm mb-2">Doanh số & Quỹ heo</h4>
                       <p className="text-xs text-orange-700 leading-relaxed">
                         • Gồm Doanh số Cho & Nhận.<br />
-                        • Phải chọn tên người đối ứng.<br />
-                        • Điểm tính khi 2 bên khớp dữ liệu.
+                        • Người trao nhận điểm Doanh Số.<br />
+                        • <span className="font-bold">Lưu ý:</span> Người nhận chỉ được tính điểm "Doanh số chuyển đổi" nếu có báo cáo Nộp Quỹ Heo.
                       </p>
                     </div>
                   </div>
@@ -832,14 +955,17 @@ export default function App() {
                 <section className="space-y-4">
                   <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
                     <div className="w-1.5 h-6 bg-blue-600 rounded-full"></div>
-                    3. Minh chứng & Hình ảnh
+                    3. Tính trung thực & Kiểm duyệt chéo (QC)
                   </h3>
-                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
-                    <p className="text-sm text-amber-900 leading-relaxed">
-                      • <span className="font-bold">Bắt buộc:</span> Tải lên ảnh minh chứng cho các hoạt động.<br />
-                      • Hệ thống tự động nén ảnh để tiết kiệm dung lượng.<br />
-                      • Ảnh rõ nét giúp Admin duyệt báo cáo nhanh hơn.
+                  <div className="bg-red-50 p-4 rounded-2xl border border-red-100 space-y-3">
+                    <p className="text-sm text-red-900 leading-relaxed font-bold">
+                      Hệ thống tự động bảo vệ tính minh bạch bằng cơ chế 3 lớp:
                     </p>
+                    <ul className="text-sm text-red-800 leading-relaxed list-disc list-inside space-y-1 ml-1">
+                      <li><span className="font-bold">Bằng Chứng Bắt Buộc:</span> Báo cáo Doanh số lớn (&gt;50tr), Quỹ Heo, Gặp mặt, và Khách mời sẽ bị KHÓA NẾU THIẾU ảnh minh chứng (Bill chuyển khoản/Selfie chung/Namecard).</li>
+                      <li><span className="font-bold">Xác Nhận Chéo (Peer Review):</span> Khi bạn báo cáo nhắc đến người khác, người đó sẽ nhận thông báo và phải bấm "Xác nhận". Điểm chỉ hợp lệ khi đối tác xác nhận!</li>
+                      <li><span className="font-bold">Chế Tài Phạt x2:</span> Bất kỳ hành vi gian lận/báo cáo khống nào nếu bị phát hiện (bị từ chối xác nhận chéo) sẽ bị Hủy bỏ & TRỪ x2 số điểm gian lận.</li>
+                    </ul>
                   </div>
                 </section>
 
@@ -870,6 +996,19 @@ export default function App() {
           </div>
         )}
 
+        <GuestRegistrationModal
+          isOpen={showGuestModal}
+          onClose={() => setShowGuestModal(false)}
+          userId={user.uid}
+        />
+
+        <LeaveRequestModal
+          isOpen={showLeaveModal}
+          onClose={() => setShowLeaveModal(false)}
+          userId={user.uid}
+        />
+
+        {/* Notifications Sidebar */}
         {showNotifications && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
@@ -899,16 +1038,20 @@ export default function App() {
               <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
                 {notifications.length > 0 ? (
                   notifications.map(notification => (
-                    <div key={notification.id} className={cn("p-4 rounded-2xl border transition-all", notification.read ? "bg-white border-gray-100" : "bg-blue-50 border-blue-100")}>
+                    <div key={notification.id} className={cn("p-4 rounded-2xl border transition-all", 
+                      notification.read ? "bg-white border-gray-100" : 
+                      (notification.type === 'warning' || notification.type === 'admin_reminder') ? "bg-red-50 border-red-100" :
+                      "bg-blue-50 border-blue-100"
+                    )}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-3">
                           <div className={cn(
                             "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                            notification.type === 'warning' ? "bg-amber-100 text-amber-600" : 
+                            (notification.type === 'warning' || notification.type === 'admin_reminder') ? "bg-red-100 text-red-600" : 
                             notification.type === 'kpi_linked' ? "bg-green-100 text-green-600" :
                             "bg-blue-100 text-blue-600"
                           )}>
-                            {notification.type === 'warning' ? <AlertCircle size={18} /> : 
+                            {(notification.type === 'warning' || notification.type === 'admin_reminder') ? <AlertCircle size={18} /> : 
                              notification.type === 'kpi_linked' ? <LinkIcon size={18} /> :
                              <Info size={18} />}
                           </div>

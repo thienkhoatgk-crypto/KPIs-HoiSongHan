@@ -68,16 +68,16 @@ service cloud.firestore {
           'piggyAmount', 'isPiggyExternal', 'piggyEvidence',
           'bonusPoints', 'penaltyPoints',
           'evidence', 'meetingEvidence', 'hostingEvidence', 'tripEvidence', 'officeEvidence',
-          'total', 'updatedAt', 'lastUpdatedBy', 'status', 'adminNote'
+          'total', 'updatedAt', 'lastUpdatedBy', 'status', 'adminNote',
+          'confirmations', 'lastEditedDate'
         ];
       }
       
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidReport(incoming());
-      allow update: if (isAdmin() || (isOwner(existing().userId) && existing().status == 'pending')) && (
-        isAdmin() || 
-        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(allowedMemberFields()))
-      );
+      allow update: if isAdmin() || 
+                    (isOwner(existing().userId) && existing().status == 'pending' && incoming().diff(existing()).affectedKeys().hasOnly(allowedMemberFields())) ||
+                    (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['confirmations', 'lastEditedDate', 'updatedAt']));
       allow delete: if isAdmin();
     }
 
@@ -92,6 +92,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && incoming().invitedBy == request.auth.uid;
       allow update, delete: if isAdmin() || (isSignedIn() && existing().invitedBy == request.auth.uid);
+    }
+
+    // 4b. Leave Requests Collection
+    match /leaveRequests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid && existing().status == 'pending');
     }
 
     // 5. Monthly Summaries Collection
@@ -115,7 +123,33 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
-    // 8. Connection Test
+    // 8. Invitations Collection
+    match /invitations/{invitationId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() && existing().email == request.auth.token.email && incoming().diff(existing()).affectedKeys().hasOnly(['status']));
+    }
+
+    // 9. KPI Settings Collection
+    match /kpi_settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 10. Elections Collection (Voting state)
+    match /elections/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 11. Election Votes Collection
+    match /election_votes/{voteId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().voterId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 12. Connection Test
     match /test/connection {
       allow get: if isSignedIn();
     }

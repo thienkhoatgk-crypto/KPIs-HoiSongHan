@@ -6,10 +6,47 @@ export interface UserProfile {
   phone: string;
   group: 0 | 1 | 2 | 3;
   role: 'admin' | 'member';
+  executiveRole?: string; // Changed to string to allow dynamic roles
   totalScore: number;
   bonusNextMonth?: number;
   cashBonus?: number;
   status?: 'active' | 'paused' | 'deleted';
+  pausedUntil?: any; // Timestamp
+}
+
+export interface ElectionState {
+  isOpen: boolean;
+  currentRole: string | null;
+  candidates: string[]; // array of UIDs
+  startedAt?: any; // Timestamp
+  endTime?: any; // Timestamp for 5 minute countdown
+  isDemo?: boolean;
+}
+
+export interface ElectionVote {
+  id?: string;
+  voterId: string;
+  candidateId: string;
+  role: string;
+  timestamp: any; // Timestamp
+}
+
+export interface ElectionWinner {
+  role: string;
+  userId: string;
+  votes: number;
+  electedAt: any; // Timestamp
+}
+
+export interface LeaveRequest {
+  id?: string;
+  userId: string;
+  type: 'weekly' | 'long_term';
+  reason: string;
+  startDate?: any; // Timestamp (for weekly, it's just the meeting date)
+  endDate?: any; // Timestamp (for long_term, end of 1 month)
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: any; // Timestamp
 }
 
 export interface Invitation {
@@ -42,10 +79,12 @@ export interface KPIReport {
   externalOppCount?: number;
   oppCount?: number; // legacy
   oppParticipantIds?: string[];
+  externalOppParticipantIds?: string[];
   
   // Guests
   targetedGuests: number;
   nonTargetedGuests: number;
+  guestEvidence?: string[];
   
   // Meetings
   normalMeetings: number;
@@ -72,6 +111,9 @@ export interface KPIReport {
   bonusReason?: string;
   penaltyPoints: number;
   penaltyReason?: string;
+
+  // Peer Review Confirmations
+  confirmations?: Record<string, 'pending' | 'confirmed' | 'rejected'>;
 
   total: number;
   updatedAt?: any; // Timestamp
@@ -189,19 +231,36 @@ export interface KPISettings {
     level5Bonus: number; // Bonus cash for next month
   };
   piggyBank: {
-    internalMin: number; // min percentage or fixed? The user said "mức tối thiểu" for internal, maybe percentage? Usually 3%
-    internalMax: number; 
-    externalLevel1: number; // Threshold 1
-    externalLevel1Points: number;
-    externalLevel2: number; // Threshold 2
-    externalLevel2Points: number;
-    externalLevel3: number; // Threshold 3
-    externalLevel3Points: number;
-    externalLevel4: number; // Threshold 4
-    externalLevel4Points: number;
+    level1Revenue: number; // < 10tr
+    level1Piggy: number;
+    level1Points: number;
+    level2Revenue: number; // 10tr - 100tr
+    level2Piggy: number;
+    level2Points: number;
+    level3Revenue: number; // 100tr - 300tr
+    level3Piggy: number;
+    level3Points: number;
+    level4Revenue: number; // 300tr - 600tr
+    level4Piggy: number;
+    level4Points: number;
+    level5Revenue: number; // 600tr - 1ty
+    level5Piggy: number;
+    level5Points: number;
+    level6Revenue: number; // > 1ty
+    level6Piggy: number;
+    level6Points: number;
   };
   threshold: number; // 35 default
   kpiLevels: typeof KPI_LEVELS;
+  meetingSchedule: {
+    dayOfWeek: number; // 0=Sun, 1=Mon, 2=Tue, 3=Wed, etc.
+    startHour: number;
+    startMinute: number;
+    lateHour?: number;
+    lateMinute?: number;
+    closeHour?: number;
+    closeMinute?: number;
+  };
 }
 
 export const DEFAULT_KPI_SETTINGS: KPISettings = {
@@ -242,17 +301,34 @@ export const DEFAULT_KPI_SETTINGS: KPISettings = {
     level5Bonus: 500000
   },
   piggyBank: {
-    internalMin: 3, // 3%
-    internalMax: 5, // 5%
-    externalLevel1: 2000000,
-    externalLevel1Points: 5,
-    externalLevel2: 5000000,
-    externalLevel2Points: 10,
-    externalLevel3: 10000000,
-    externalLevel3Points: 15,
-    externalLevel4: 20000000,
-    externalLevel4Points: 20
+    level1Revenue: 10000000,
+    level1Piggy: 300000,
+    level1Points: 5,
+    level2Revenue: 100000000,
+    level2Piggy: 500000,
+    level2Points: 5,
+    level3Revenue: 300000000,
+    level3Piggy: 1000000,
+    level3Points: 10,
+    level4Revenue: 600000000,
+    level4Piggy: 1500000,
+    level4Points: 15,
+    level5Revenue: 1000000000,
+    level5Piggy: 2000000,
+    level5Points: 20,
+    level6Revenue: 1000000001, // > 1 ty
+    level6Piggy: 5000000,
+    level6Points: 25,
   },
   threshold: 35,
-  kpiLevels: KPI_LEVELS
+  kpiLevels: KPI_LEVELS,
+  meetingSchedule: {
+    dayOfWeek: 2, // Tuesday
+    startHour: 8,
+    startMinute: 30,
+    lateHour: 9,
+    lateMinute: 10,
+    closeHour: 10,
+    closeMinute: 0
+  }
 };

@@ -1,6 +1,8 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithCredential } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBsbvOBVbj97yLI6TjE0dNKYErQ-erM_xI", // <-- Khóa mới của anh đây
@@ -17,3 +19,9 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
+
+export const signInWithGoogleMobile = async () => {
+  const result = await FirebaseAuthentication.signInWithGoogle();
+  const credential = GoogleAuthProvider.credential(result.credential?.idToken);
+  return signInWithCredential(auth, credential);
+};

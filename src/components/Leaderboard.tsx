@@ -46,6 +46,8 @@ import {
   LayoutDashboard, 
   PlusCircle, 
   Trophy, 
+  Gift,
+  Flame,
   LogOut, 
   User as UserIcon,
   ChevronRight,
@@ -82,28 +84,35 @@ import {
   Upload,
   Eye,
   HelpCircle,
-  Settings
+  Settings,
+  Database
 } from 'lucide-react';
-import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, KPISettings } from '../types';
+import { UserProfile, KPIReport, KPI_LEVELS, Meeting, Guest, AppNotification, KPISettings, LeaveRequest } from '../types';
 import { format, startOfWeek, getWeek, startOfMonth, endOfMonth, addDays, isTuesday, lastDayOfMonth, isAfter, startOfDay, isSameDay } from 'date-fns';
 import { cn } from '../lib/utils';
 import { writeBatch, getDocs } from 'firebase/firestore';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { toPng } from 'html-to-image';
 import { AnimatePresence, motion } from 'framer-motion';
 
-import { calculateMonthlyScore } from '../lib/kpi';
+import { calculateMonthlyScore, getReportingStatus, formatWeekDisplay, isBeforeMeetingTime, calculateWeeklyBreakdown } from '../lib/kpi';
 import { handleFirestoreError, OperationType } from '../lib/firebase-utils';
-import html2canvas from 'html2canvas';
+import { exportGroupExcel, exportIndividualExcel } from '../lib/excel-export';
 import InvitationPoster from './InvitationPoster';
 import KPISettingsView from './KPISettingsView';
+import DataManagementModal from './DataManagementModal';
+import PeerReviewTab from './PeerReviewTab';
+import QCDashboard from './QCDashboard';
+import ElectionAdminPanel from './ElectionAdminPanel';
+import ElectionVotingModal from './ElectionVotingModal';
 import { useRef } from 'react';
 
-export default function Leaderboard({ users, reports, meetings, guests, isAdmin, kpiSettings, onReset, onEditReport }: { users: UserProfile[], reports: KPIReport[], meetings: Meeting[], guests: Guest[], isAdmin: boolean, kpiSettings: KPISettings, onReset: () => void, onEditReport: (r: KPIReport) => void }) {
-  const [activeGroup, setActiveGroup] = useState<number | 'all'>('all');
-  const [viewMode, setViewMode] = useState<'leaderboard' | 'summary' | 'members' | 'dashboard' | 'reports' | 'meetings' | 'guests' | 'memberDetail' | 'my-reports' | 'settings'>('leaderboard');
-  const [resetLoading, setResetLoading] = useState(false);
+export default function Leaderboard({ currentUser, users, reports, meetings, guests, leaveRequests = [], isAdmin, kpiSettings, onReset, onEditReport }: { currentUser?: UserProfile | null, users: UserProfile[], reports: KPIReport[], meetings: Meeting[], guests: Guest[], leaveRequests?: LeaveRequest[], isAdmin: boolean, kpiSettings: KPISettings, onReset: () => void, onEditReport: (r: KPIReport) => void }) {
+  const [activeGroup, setActiveGroup] = useState<number | 'all' | 'bdh'>('all');
+  const [viewMode, setViewMode] = useState<'leaderboard' | 'summary' | 'members' | 'dashboard' | 'reports' | 'meetings' | 'guests' | 'leave_requests' | 'memberDetail' | 'my-reports' | 'settings' | 'peer-review' | 'qc-dashboard' | 'election'>('leaderboard');
+  const [showDataModal, setShowDataModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [reportFilterStatus, setReportFilterStatus] = useState<string>('all');
   const [reportFilterUser, setReportFilterUser] = useState<string>('all');
@@ -212,17 +221,42 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
         createdBy: auth.currentUser?.uid || 'admin'
       });
 
-      // Generate share links
       const loginUrl = window.location.origin;
+
+      // Send automatic email via Firebase Extension (mail collection)
+      await addDoc(collection(db, 'mail'), {
+        to: invitationForm.email,
+        message: {
+          subject: 'Mời tham gia hệ thống KPI Sông Hàn',
+          text: `Chào ${invitationForm.representative},\n\nBạn đã được Admin mời tham gia hệ thống Quản lý KPI Sông Hàn với vai trò thành viên ${invitationForm.group === 0 ? 'Ban Quản Trị (Admin)' : 'Nhóm ' + invitationForm.group}.\n\nVui lòng truy cập đường link sau và đăng nhập bằng email ${invitationForm.email} để xác nhận tham gia:\n${loginUrl}\n\nTrân trọng,\nBan Quản Trị`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+              <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: #1e3a8a; margin: 0; text-transform: uppercase;">Hội Xây Dựng Sông Hàn</h2>
+                <p style="color: #6b7280; font-size: 14px; margin-top: 5px;">Hệ thống Quản lý KPI Nội bộ</p>
+              </div>
+              <p>Chào <strong>${invitationForm.representative}</strong>,</p>
+              <p>Bạn đã được Admin mời tham gia hệ thống Quản lý KPI Sông Hàn với vai trò thành viên <strong>${invitationForm.group === 0 ? 'Ban Quản Trị (Admin)' : 'Nhóm ' + invitationForm.group}</strong>.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${loginUrl}" style="background-color: #1e3a8a; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Đăng nhập hệ thống</a>
+              </div>
+              <p style="font-size: 14px; color: #4b5563;">Vui lòng dùng tài khoản Google có email là: <strong style="color: #1e3a8a;">${invitationForm.email}</strong> để đăng nhập.</p>
+              <p style="font-size: 12px; color: #9ca3af; margin-top: 30px; text-align: center;">Đây là email tự động, vui lòng không trả lời.</p>
+            </div>
+          `
+        }
+      });
+
+      // Generate share links for fallback
       const emailSubject = encodeURIComponent('Mời tham gia hệ thống KPI Sông Hàn');
-      const emailBody = encodeURIComponent(`Chào ${invitationForm.representative},\n\nBạn đã được Admin mời tham gia hệ thống Quản lý KPI Sông Hàn với vai trò thành viên Nhóm ${invitationForm.group}.\n\nVui lòng truy cập đường link sau và đăng nhập bằng email ${invitationForm.email} để xác nhận tham gia:\n${loginUrl}\n\nTrân trọng,\nBan Quản Trị`);
+      const emailBody = encodeURIComponent(`Chào ${invitationForm.representative},\n\nBạn đã được Admin mời tham gia hệ thống Quản lý KPI Sông Hàn với vai trò thành viên ${invitationForm.group === 0 ? 'Ban Quản Trị (Admin)' : 'Nhóm ' + invitationForm.group}.\n\nVui lòng truy cập đường link sau và đăng nhập bằng email ${invitationForm.email} để xác nhận tham gia:\n${loginUrl}\n\nTrân trọng,\nBan Quản Trị`);
       
       setGeneratedMailto(`mailto:${invitationForm.email}?subject=${emailSubject}&body=${emailBody}`);
       
-      const zaloMessage = `Chào ${invitationForm.representative},\n\nBạn đã được Admin mời tham gia hệ thống Quản lý KPI Sông Hàn với vai trò thành viên Nhóm ${invitationForm.group}.\n\nVui lòng truy cập đường link sau và đăng nhập bằng tài khoản Google (${invitationForm.email}) để xác nhận:\n${loginUrl}`;
+      const zaloMessage = `Chào ${invitationForm.representative},\n\nBạn đã được Admin mời tham gia hệ thống Quản lý KPI Sông Hàn với vai trò thành viên ${invitationForm.group === 0 ? 'Ban Quản Trị (Admin)' : 'Nhóm ' + invitationForm.group}.\n\nVui lòng truy cập đường link sau và đăng nhập bằng tài khoản Google (${invitationForm.email}) để xác nhận:\n${loginUrl}`;
       setGeneratedZalo(zaloMessage);
 
-      alert("Tạo lời mời thành công! Bạn có thể chọn cách gửi lời mời bên dưới.");
+      alert("Tạo lời mời và hệ thống đã gửi email tự động thành công!");
     } catch (err) {
       console.error("Error creating invitation:", err);
       alert("Lỗi khi tạo lời mời.");
@@ -276,16 +310,14 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
     setTimeout(async () => {
       if (posterRef.current) {
         try {
-          const canvas = await html2canvas(posterRef.current, {
-            scale: 2, // Higher quality
-            useCORS: true, // Allow external images if any
-            backgroundColor: null,
-            logging: false,
+          const dataUrl = await toPng(posterRef.current, {
+            pixelRatio: 2, 
+            cacheBust: true,
+            skipFonts: true,
           });
 
-          const image = canvas.toDataURL('image/jpeg', 0.9);
           const link = document.createElement('a');
-          link.href = image;
+          link.href = dataUrl;
           link.download = `ThuMoi_${guest.name.replace(/\s+/g, '_')}.jpg`;
           link.click();
         } catch (err) {
@@ -338,6 +370,22 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
         await setDoc(doc(db, 'meetings', editingMeeting.id), meetingData);
       } else {
         await addDoc(collection(db, 'meetings'), meetingData);
+        
+        // Notify users
+        const batch = writeBatch(db);
+        const attendeesToNotify = meetingData.attendees;
+        attendeesToNotify.forEach(uid => {
+          const notifRef = doc(collection(db, 'notifications'));
+          batch.set(notifRef, {
+            userId: uid,
+            title: 'Lịch họp mới',
+            message: `Ban Điều Hành vừa tạo buổi họp mới: ${meetingData.title} vào lúc ${meetingData.time} ngày ${format(new Date(meetingForm.date), 'dd/MM/yyyy')}.`,
+            type: 'system',
+            read: false,
+            createdAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
       }
       
       setShowMeetingModal(false);
@@ -372,6 +420,17 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
     }
   };
 
+  const handleDeleteUser = async (userId: string) => {
+    if (!window.confirm("BẠN CÓ CHẮC CHẮN MUỐN XÓA THÀNH VIÊN NÀY?\nHồ sơ của thành viên sẽ bị xóa khỏi hệ thống.")) return;
+    try {
+      await deleteDoc(doc(db, 'users', userId));
+      alert("Đã xóa thành viên thành công.");
+    } catch (err) {
+      console.error("Delete user error:", err);
+      alert("Có lỗi xảy ra khi xóa thành viên.");
+    }
+  };
+
   const COLORS = ['#1e3a8a', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#eff6ff'];
 
   const handleUpdateUser = async (e: React.FormEvent) => {
@@ -387,22 +446,30 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
     }
   };
 
-  const handleReset = async () => {
-    if (!window.confirm("BẠN CÓ CHẮC CHẮN MUỐN RESET DỮ LIỆU THÁNG MỚI?\nToàn bộ báo cáo hiện tại sẽ bị xóa để bắt đầu chu kỳ mới.")) return;
-    setResetLoading(true);
+  const handleUpdateLeaveRequestStatus = async (id: string, status: 'approved' | 'rejected') => {
+    if (!window.confirm(`Bạn có chắc muốn ${status === 'approved' ? 'duyệt' : 'từ chối'} đơn xin vắng này?`)) return;
     try {
-      const snap = await getDocs(collection(db, 'reports'));
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      onReset();
+      await setDoc(doc(db, 'leaveRequests', id), { status, updatedAt: serverTimestamp() }, { merge: true });
+      
+      // If approved and long_term, update user status to 'paused'
+      if (status === 'approved') {
+        const request = leaveRequests.find(r => r.id === id);
+        if (request && request.type === 'long_term') {
+          await setDoc(doc(db, 'users', request.userId), { 
+            status: 'paused',
+            pausedUntil: request.endDate
+          }, { merge: true });
+        }
+      }
+      
+      alert("Đã cập nhật trạng thái đơn!");
     } catch (err) {
-      console.error("Reset error:", err);
-      alert("Có lỗi xảy ra khi reset dữ liệu.");
-    } finally {
-      setResetLoading(false);
+      console.error("Update leave request error:", err);
+      alert("Lỗi khi cập nhật trạng thái.");
     }
   };
+
+
 
   const handleExportPDF = () => {
     const doc = new jsPDF();
@@ -417,7 +484,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
     const tableData = sortedUsers.map((user, index) => [
       index + 1,
       user.companyName,
-      user.representative,
+      user.executiveRole === 'truong_nhom' ? `${user.representative} - Trưởng nhóm ${user.group}` : user.representative,
       `Nhóm ${user.group}`,
       user.totalScore
     ]);
@@ -434,133 +501,159 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
     doc.save(`KPI_Report_${format(new Date(), 'yyyyMMdd')}.pdf`);
   };
 
+  const getReportDates = () => {
+    const now = new Date();
+    const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startD = new Date(firstOfThisMonth);
+    startD.setDate(startD.getDate() - 1);
+    while (startD.getDay() !== 3) {
+      startD.setDate(startD.getDate() - 1);
+    }
+    return {
+      startDateStr: format(startD, 'dd/MM/yyyy'),
+      endDateStr: format(now, 'dd/MM/yyyy')
+    };
+  };
+
   const handleExportExcel = () => {
-    const tableData = sortedUsers.map((user, index) => ({
-      'Hạng': index + 1,
-      'Công ty': user.companyName,
-      'Đại diện': user.representative,
-      'Nhóm': `Nhóm ${user.group}`,
-      'Điểm': user.totalScore
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(tableData);
-    
-    // Apply number format to 'Điểm' column (column E, index 4)
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-      const cell = worksheet[XLSX.utils.encode_cell({ r: R, c: 4 })];
-      if (cell && cell.t === 'n') {
-        cell.z = '#,##0';
-      }
-    }
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Leaderboard");
-    
-    // Auto-size columns
-    const max_width = tableData.reduce((w, r) => Math.max(w, r['Công ty'].length), 10);
-    worksheet['!cols'] = [ { wch: 5 }, { wch: max_width + 5 }, { wch: 20 }, { wch: 10 }, { wch: 10 } ];
-
-    XLSX.writeFile(workbook, `KPI_Report_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    handleExportGroupDetailedExcel('all');
   };
 
-  const handleExportIndividualExcel = () => {
-    const myReports = reports.filter(r => r.userId === auth.currentUser?.uid);
+  const handleExportIndividualExcel = async () => {
     const userProfile = users.find(u => u.uid === auth.currentUser?.uid);
-    
-    const tableData = myReports.sort((a, b) => b.week.localeCompare(a.week)).map((report) => ({
-      'Tuần': report.week,
-      'Ngày báo cáo': report.date?.toDate ? format(report.date.toDate(), 'dd/MM/yyyy') : format(new Date(report.date), 'dd/MM/yyyy'),
-      'Điểm': report.total,
-      'Trạng thái': report.status === 'approved' ? 'Đã duyệt' : report.status === 'pending' ? 'Chờ duyệt' : report.status === 'rejected' ? 'Từ chối' : 'Nghi vấn',
-      'Hiện diện': report.presenceStatus === 'present' ? 'Có mặt' : report.presenceStatus === 'excused' ? 'Vắng có phép' : report.presenceStatus === 'unexcused' ? 'Vắng không phép' : 'Đi trễ',
-      'Thông tin': report.infoCount,
-      'Cơ hội': report.oppCount,
-      'Khách mời': report.targetedGuests + report.nonTargetedGuests,
-      'Gặp gỡ': report.normalMeetings,
-      'Doanh số Cho': report.giverAmount,
-      'Doanh số Nhận': report.receiverAmount,
-      'Quỹ Heo': report.piggyAmount,
-      'Ghi chú Admin': report.adminNote || ''
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(tableData);
-    
-    // Apply number format to numeric columns
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-      // Columns: Điểm (C), Thông tin (F), Cơ hội (G), Khách mời (H), Gặp gỡ (I), Doanh số Cho (J), Doanh số Nhận (K), Quỹ Heo (L)
-      [2, 5, 6, 7, 8, 9, 10, 11].forEach(C => {
-        const cell = worksheet[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (cell && cell.t === 'n') {
-          cell.z = '#,##0';
-        }
-      });
-    }
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Báo cáo của tôi");
-    XLSX.writeFile(workbook, `KPI_CaNhan_${userProfile?.representative || 'ThanhVien'}_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    if (!userProfile) return;
+    const { startDateStr, endDateStr } = getReportDates();
+    const myReports = reports.filter(r => r.userId === userProfile.uid);
+    await exportIndividualExcel(
+      userProfile,
+      myReports,
+      reports,
+      kpiSettings,
+      startDateStr,
+      endDateStr
+    );
   };
 
-  const handleExportGroupDetailedExcel = (groupNum: number | 'all') => {
-    const groupUsers = groupNum === 'all' ? userScores : userScores.filter(u => u.group === groupNum);
-    const tableData = groupUsers.map(user => {
-      const userReports = reports.filter(r => r.userId === user.uid);
-      return {
-        'Hạng': 0,
-        'Công ty': user.companyName,
-        'Đại diện': user.representative,
-        'Nhóm': user.group === 0 ? 'BQT' : `Nhóm ${user.group}`,
-        'Tổng điểm': user.totalScore,
-        'Hiện diện': userReports.filter(r => r.presenceStatus === 'present').length,
-        'Vắng có phép': userReports.filter(r => r.presenceStatus === 'excused').length,
-        'Vắng không phép': userReports.filter(r => r.presenceStatus === 'unexcused').length,
-        'Đi trễ': userReports.filter(r => r.presenceStatus === 'late').length,
-        'Thông tin': userReports.reduce((sum, r) => sum + (r.infoCount || 0), 0),
-        'Cơ hội': userReports.reduce((sum, r) => sum + (r.oppCount || 0), 0),
-        'Khách mời': userReports.reduce((sum, r) => sum + (r.targetedGuests || 0) + (r.nonTargetedGuests || 0), 0),
-        'Gặp gỡ': userReports.reduce((sum, r) => sum + (r.normalMeetings || 0), 0),
-        'Doanh số Cho': userReports.reduce((sum, r) => sum + (r.giverAmount || 0), 0),
-        'Doanh số Nhận': userReports.reduce((sum, r) => sum + (r.receiverAmount || 0), 0),
-        'Quỹ Heo': userReports.reduce((sum, r) => sum + (r.piggyAmount || 0), 0),
-      };
-    }).sort((a, b) => b['Tổng điểm'] - a['Tổng điểm']);
-
-    tableData.forEach((row, idx) => row['Hạng'] = idx + 1);
-
-    const worksheet = XLSX.utils.json_to_sheet(tableData);
-    
-    // Apply number format to numeric columns
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-      // Columns: Tổng điểm (E), Hiện diện (F), Vắng có phép (G), Vắng không phép (H), Đi trễ (I), Thông tin (J), Cơ hội (K), Khách mời (L), Gặp gỡ (M), Doanh số Cho (N), Doanh số Nhận (O), Quỹ Heo (P)
-      [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].forEach(C => {
-        const cell = worksheet[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (cell && cell.t === 'n') {
-          cell.z = '#,##0';
-        }
-      });
-    }
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, `Chi tiết ${groupNum === 'all' ? 'Toàn hội' : 'Nhóm ' + groupNum}`);
-    XLSX.writeFile(workbook, `KPI_ChiTiet_${groupNum === 'all' ? 'ToanHoi' : 'Nhom' + groupNum}_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+  const handleExportGroupDetailedExcel = async (groupNum: number | 'all') => {
+    const { startDateStr, endDateStr } = getReportDates();
+    await exportGroupExcel(
+      users,
+      reports,
+      kpiSettings,
+      startDateStr,
+      endDateStr,
+      groupNum
+    );
   };
 
-  // Calculate scores from reports
+  const handleExportImageGroup = async () => {
+    const element = document.getElementById('leaderboard-group-export');
+    const scrollContainer = element?.querySelector('.overflow-x-auto');
+    if (!element) {
+      alert("Không tìm thấy bảng dữ liệu để xuất hình ảnh.");
+      return;
+    }
+    try {
+      // Temporarily remove overflow to capture full table
+      if (scrollContainer) {
+        (scrollContainer as HTMLElement).style.overflow = 'visible';
+      }
+      element.style.width = 'max-content';
+      element.style.overflow = 'visible';
+
+      const dataUrl = await toPng(element, { backgroundColor: '#ffffff', pixelRatio: 2 });
+      
+      // Restore styles
+      if (scrollContainer) {
+        (scrollContainer as HTMLElement).style.overflow = '';
+      }
+      element.style.width = '';
+      element.style.overflow = '';
+
+      const link = document.createElement('a');
+      link.download = `KPI_HinhAnh_ToanHoi_${format(new Date(), 'yyyyMMdd')}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error('Failed to export image', error);
+      alert('Đã xảy ra lỗi khi tạo hình ảnh. Vui lòng thử lại.');
+      // Restore styles on error just in case
+      if (scrollContainer) {
+        (scrollContainer as HTMLElement).style.overflow = '';
+      }
+      element.style.width = '';
+      element.style.overflow = '';
+    }
+  };
+
+  const handleExportImageIndividual = async () => {
+    const element = document.getElementById('leaderboard-individual-export');
+    const scrollContainer = element?.querySelector('.overflow-x-auto');
+    if (!element) {
+      alert("Không tìm thấy bảng dữ liệu cá nhân để xuất hình ảnh.");
+      return;
+    }
+    try {
+      if (scrollContainer) {
+        (scrollContainer as HTMLElement).style.overflow = 'visible';
+      }
+      element.style.width = 'max-content';
+      element.style.overflow = 'visible';
+
+      const dataUrl = await toPng(element, { backgroundColor: '#ffffff', pixelRatio: 2 });
+      
+      if (scrollContainer) {
+        (scrollContainer as HTMLElement).style.overflow = '';
+      }
+      element.style.width = '';
+      element.style.overflow = '';
+
+      const link = document.createElement('a');
+      link.download = `KPI_HinhAnh_CaNhan_${format(new Date(), 'yyyyMMdd')}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error('Failed to export image', error);
+      alert('Đã xảy ra lỗi khi tạo hình ảnh. Vui lòng thử lại.');
+      if (scrollContainer) {
+        (scrollContainer as HTMLElement).style.overflow = '';
+      }
+      element.style.width = '';
+      element.style.overflow = '';
+    }
+  };
+
   // Calculate scores from reports
   const userScores = users.map(user => {
     const userReports = reports.filter(r => r.userId === user.uid);
     const scoreData = calculateMonthlyScore(userReports, reports, kpiSettings);
-    return { ...user, totalScore: scoreData.total, bonusNextMonth: scoreData.bonusNextMonth, cashBonus: scoreData.cashBonus };
+    
+    return { 
+      ...user, 
+      totalScore: scoreData.total, 
+      bonusNextMonth: scoreData.bonusNextMonth, 
+      cashBonus: scoreData.cashBonus,
+      presencePoints: scoreData.breakdown.presence,
+      businessPoints: scoreData.breakdown.business,
+      infoPoints: scoreData.breakdown.info,
+      oppPoints: scoreData.breakdown.opportunities,
+      guestPoints: scoreData.breakdown.guests,
+      meetingPoints: scoreData.breakdown.meetings,
+      jointHostingPoints: scoreData.breakdown.jointHostingPoints,
+      jointTripPoints: scoreData.breakdown.jointTripPoints,
+      officeMeetingPoints: scoreData.breakdown.officeMeetingPoints
+    };
   });
 
   const filteredUsers = activeGroup === 'all' 
     ? userScores 
-    : userScores.filter(u => u.group === activeGroup);
+    : activeGroup === 'bdh'
+      ? userScores.filter(u => u.executiveRole && u.executiveRole !== 'thanh_vien')
+      : userScores.filter(u => u.group === activeGroup);
 
-  const sortedUsers = [...filteredUsers].sort((a, b) => b.totalScore - a.totalScore);
+  const sortedUsers = [...filteredUsers]
+    .filter(u => activeGroup === 0 || u.group !== 0)
+    .sort((a, b) => b.totalScore - a.totalScore);
 
   const criticalUsers = userScores.filter(u => u.totalScore < kpiSettings.threshold && u.group !== 0);
   const warningUsers = userScores.filter(u => u.totalScore >= kpiSettings.threshold && u.totalScore < kpiSettings.threshold + 10 && u.group !== 0);
@@ -596,6 +689,22 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
     const avgPoints = groupUsers.length ? Math.round(totalPoints / groupUsers.length) : 0;
     return { name: g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`, points: totalPoints, avg: avgPoints, members: groupUsers.length };
   });
+
+  const validGroupStats = groupStats.filter((g, index) => index !== 0 && g.members > 0);
+  const maxAvgPoints = validGroupStats.length > 0 ? Math.max(...validGroupStats.map(g => g.avg)) : 0;
+  const topGroupNumber = validGroupStats.find(g => g.avg === maxAvgPoints && maxAvgPoints > 0) ? parseInt(validGroupStats.find(g => g.avg === maxAvgPoints)!.name.replace('Nhóm ', '')) : null;
+
+  const validUsers = userScores.filter(u => u.group !== 0);
+  const maxKpiScore = validUsers.length > 0 ? Math.max(...validUsers.map(u => u.totalScore)) : 0;
+  const topKpiMemberUid = validUsers.find(u => u.totalScore === maxKpiScore && maxKpiScore > 0)?.uid;
+
+  const userGiverAmounts = validUsers.map(u => {
+    const userReports = reports.filter(r => r.userId === u.uid);
+    const totalGiver = userReports.reduce((sum, r) => sum + (r.giverAmount || 0), 0);
+    return { uid: u.uid, totalGiver };
+  });
+  const maxGiverAmount = userGiverAmounts.length > 0 ? Math.max(...userGiverAmounts.map(u => u.totalGiver)) : 0;
+  const topGiverMemberUid = userGiverAmounts.find(u => u.totalGiver === maxGiverAmount && maxGiverAmount > 0)?.uid;
 
   // Revenue levels distribution
   const giverLevelsCount = Array(KPI_LEVELS.GIVER.length).fill(0);
@@ -663,6 +772,20 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
             Bảng xếp hạng
           </button>
           <button 
+            onClick={() => setViewMode('peer-review')}
+            className={cn(
+              "px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap relative",
+              viewMode === 'peer-review' ? "bg-[#1e3a8a] text-white shadow-lg" : "text-gray-500 hover:bg-gray-50"
+            )}
+          >
+            🤝 Cần xác nhận
+            {reports.filter(r => currentUser && r.confirmations?.[currentUser.uid] === 'pending').length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full animate-bounce">
+                {reports.filter(r => currentUser && r.confirmations?.[currentUser.uid] === 'pending').length}
+              </span>
+            )}
+          </button>
+          <button 
             onClick={() => setViewMode('my-reports')}
             className={cn(
               "px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap",
@@ -719,6 +842,15 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                 Khách mời
               </button>
               <button 
+                onClick={() => setViewMode('leave_requests')}
+                className={cn(
+                  "px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap",
+                  viewMode === 'leave_requests' ? "bg-[#1e3a8a] text-white shadow-lg" : "text-gray-500 hover:bg-gray-50"
+                )}
+              >
+                Đơn xin vắng
+              </button>
+              <button 
                 onClick={() => setViewMode('members')}
                 className={cn(
                   "px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap",
@@ -735,6 +867,22 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                 )}
               >
                 Cấu hình KPI
+              </button>
+              <button 
+                onClick={() => {
+                  const pwd = window.prompt("Nhập mật khẩu để mở chức năng Bầu Cử:");
+                  if (pwd === "123456") {
+                    setViewMode('election');
+                  } else if (pwd !== null) {
+                    alert("Mật khẩu không đúng!");
+                  }
+                }}
+                className={cn(
+                  "px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap",
+                  viewMode === 'election' ? "bg-indigo-600 text-white shadow-lg" : "text-indigo-600 bg-indigo-50 hover:bg-indigo-100"
+                )}
+              >
+                Bầu Cử & Trộn Nhóm
               </button>
             </>
           )}
@@ -783,27 +931,35 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
 
         {isAdmin && viewMode === 'leaderboard' && (
           <div className="flex items-center gap-2">
-            <button 
-              onClick={handleExportExcel}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
-            >
-              <FileText size={16} />
-              Xuất Excel
-            </button>
+            <div className="relative group z-40">
+              <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200">
+                <Download size={16} />
+                Xuất dữ liệu
+              </button>
+              <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                <button onClick={handleExportExcel} className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 text-sm font-medium text-gray-700 text-left">
+                  <FileText size={16} className="text-emerald-600" />
+                  Xuất Excel
+                </button>
+                <button onClick={handleExportImageGroup} className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 text-sm font-medium text-gray-700 text-left border-t border-gray-100">
+                  <ImageIcon size={16} className="text-purple-600" />
+                  Xuất Hình Ảnh
+                </button>
+              </div>
+            </div>
             <button 
               onClick={() => handleExportGroupDetailedExcel(activeGroup)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
             >
               <FileText size={16} />
-              Chi tiết {activeGroup === 'all' ? 'Toàn hội' : 'Nhóm ' + activeGroup}
+              Chi tiết {activeGroup === 'all' ? 'Toàn hội' : activeGroup === 'bdh' ? 'Ban Điều Hành' : 'Nhóm ' + activeGroup}
             </button>
             <button 
-              onClick={handleReset}
-              disabled={resetLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
+              onClick={() => setShowDataModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-sm font-bold hover:bg-red-100 transition-all"
             >
-              <RefreshCcw size={16} className={resetLoading ? "animate-spin" : ""} />
-              Reset Tháng Mới
+              <Database size={16} />
+              Quản lý Dữ liệu
             </button>
           </div>
         )}
@@ -821,7 +977,26 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
             >
               Tất cả
             </button>
-            {[0, 1, 2, 3].map(g => (
+            <button 
+              onClick={() => setActiveGroup(0)}
+              className={cn(
+                "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all",
+                activeGroup === 0 ? "bg-blue-600 text-white" : "bg-white text-gray-500 border border-gray-100"
+              )}
+            >
+              Ban Quản Trị
+            </button>
+            <button 
+              onClick={() => setActiveGroup('bdh')}
+              className={cn(
+                "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all flex items-center gap-1",
+                activeGroup === 'bdh' ? "bg-blue-600 text-white" : "bg-white text-blue-600 border border-blue-100"
+              )}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+              Ban Điều Hành
+            </button>
+            {[1, 2, 3].map(g => (
               <button 
                 key={g}
                 onClick={() => setActiveGroup(g)}
@@ -830,7 +1005,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                   activeGroup === g ? "bg-blue-600 text-white" : "bg-white text-gray-500 border border-gray-100"
                 )}
               >
-                {g === 0 ? 'Ban Quản Trị' : `Nhóm ${g}`}
+                Nhóm {g}
               </button>
             ))}
           </div>
@@ -845,57 +1020,102 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
             ))}
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+          <div id="leaderboard-group-export" className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
             {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-50/50 border-b border-gray-100">
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Hạng</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Công ty / Đại diện</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">Nhóm</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Điểm</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Thưởng T.Sau</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Thưởng Nóng</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center whitespace-nowrap">Hạng</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase">Công ty / Đại diện</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center whitespace-nowrap">Nhóm</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center">Hiện<br/>diện</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center">Thông<br/>tin</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center">Cơ<br/>hội</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center">Khách</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center">Gặp gỡ</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-center">Doanh số<br/>cho đi</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-right whitespace-nowrap">Điểm</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-right">Thưởng<br/>T.Sau</th>
+                    <th className="px-3 py-4 text-[11px] font-bold text-gray-400 uppercase text-right">Thưởng<br/>Nóng</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {sortedUsers.map((user, index) => (
                     <tr key={user.uid} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className={cn(
-                          "w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm",
-                          index === 0 ? "bg-yellow-100 text-yellow-700" :
-                          index === 1 ? "bg-gray-100 text-gray-600" :
-                          index === 2 ? "bg-orange-100 text-orange-700" :
-                          "text-gray-400"
-                        )}>
-                          {index + 1}
+                        <td className="px-3 py-3">
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm mx-auto",
+                            index === 0 ? "bg-yellow-100 text-yellow-700" :
+                            index === 1 ? "bg-gray-100 text-gray-600" :
+                            index === 2 ? "bg-orange-100 text-orange-700" :
+                            "bg-gray-50 text-gray-500"
+                          )}>
+                            {index + 1}
+                          </div>
+                        </td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="font-bold text-gray-900 text-[13px] leading-tight max-w-[180px] break-words">{user.companyName}</p>
+                          {user.uid === topKpiMemberUid && (
+                            <span title="Thành viên có điểm KPI cao nhất" className="inline-flex items-center justify-center p-1 bg-yellow-100 text-yellow-600 rounded-full animate-bounce shrink-0">
+                              <Trophy size={12} />
+                            </span>
+                          )}
+                          {user.uid === topGiverMemberUid && (
+                            <span title="Thành viên cho doanh số cao nhất" className="inline-flex items-center justify-center p-1 bg-green-100 text-green-600 rounded-full animate-pulse shrink-0">
+                              <Gift size={12} />
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-0.5">{user.executiveRole === 'truong_nhom' ? `${user.representative} - Trưởng nhóm ${user.group}` : user.representative}</p>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className={cn(
+                            "px-2 py-1 rounded-md text-[9px] font-bold uppercase whitespace-nowrap",
+                            user.group === 0 ? "bg-gray-100 text-gray-700" :
+                            user.group === 1 ? "bg-blue-50 text-blue-600" :
+                            user.group === 2 ? "bg-purple-50 text-purple-600" :
+                            "bg-pink-50 text-pink-600"
+                          )}>
+                            {user.group === 0 ? 'BQT' : `Nhóm ${user.group}`}
+                          </span>
+                          {user.group === topGroupNumber && (
+                            <span title="Nhóm có điểm trung bình cao nhất" className="inline-flex items-center justify-center p-1 bg-orange-100 text-orange-600 rounded-full animate-pulse shrink-0">
+                              <Flame size={12} />
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-gray-900 text-sm">{user.companyName}</p>
-                        <p className="text-xs text-gray-500">{user.representative}</p>
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-[13px] font-bold text-gray-900">{user.presencePoints}đ</span>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={cn(
-                          "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
-                          user.group === 0 ? "bg-gray-100 text-gray-700" :
-                          user.group === 1 ? "bg-blue-50 text-blue-600" :
-                          user.group === 2 ? "bg-purple-50 text-purple-600" :
-                          "bg-pink-50 text-pink-600"
-                        )}>
-                          {user.group === 0 ? 'Ban Quản Trị' : `Nhóm ${user.group}`}
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-[13px] font-bold text-gray-900">{user.infoPoints}đ</span>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-[13px] font-bold text-gray-900">{user.oppPoints}đ</span>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-[13px] font-bold text-gray-900">{user.guestPoints}đ</span>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-[13px] font-bold text-gray-900">
+                          {user.meetingPoints}đ
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-lg font-black text-gray-900">{user.totalScore}</span>
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-[13px] font-bold text-gray-900">{user.businessPoints}đ</span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-bold text-blue-600">+{user.bonusNextMonth || 0}</span>
+                      <td className="px-3 py-3 text-right">
+                        <span className="text-base font-black text-gray-900">{user.totalScore}</span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-bold text-green-600">{user.cashBonus ? (user.cashBonus / 1000000).toFixed(1) + 'M' : '0'}</span>
+                      <td className="px-3 py-3 text-right">
+                        <span className="text-xs font-bold text-blue-600">+{user.bonusNextMonth || 0}</span>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <span className="text-xs font-bold text-green-600 whitespace-nowrap">{user.cashBonus ? (user.cashBonus / 1000000).toFixed(1) + 'M' : '0'}</span>
                       </td>
                     </tr>
                   ))}
@@ -917,17 +1137,30 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                     {index + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 text-sm truncate">{user.companyName}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-gray-900 text-sm truncate">{user.companyName}</p>
+                      {user.uid === topKpiMemberUid && (
+                        <span title="Thành viên có điểm KPI cao nhất" className="shrink-0 inline-flex items-center justify-center p-1 bg-yellow-100 text-yellow-600 rounded-full animate-bounce">
+                          <Trophy size={10} />
+                        </span>
+                      )}
+                      {user.uid === topGiverMemberUid && (
+                        <span title="Thành viên cho doanh số cao nhất" className="shrink-0 inline-flex items-center justify-center p-1 bg-green-100 text-green-600 rounded-full animate-pulse">
+                          <Gift size={10} />
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-[10px] text-gray-500 truncate">{user.representative}</p>
+                      <p className="text-[10px] text-gray-500 truncate">{user.executiveRole === 'truong_nhom' ? `${user.representative} - Trưởng nhóm ${user.group}` : user.representative}</p>
                       <span className={cn(
-                        "px-1.5 py-0.5 rounded text-[8px] font-bold uppercase",
+                        "px-1.5 py-0.5 rounded text-[8px] font-bold uppercase flex items-center gap-1",
                         user.group === 0 ? "bg-gray-100 text-gray-700" :
                         user.group === 1 ? "bg-blue-50 text-blue-600" :
                         user.group === 2 ? "bg-purple-50 text-purple-600" :
                         "bg-pink-50 text-pink-600"
                       )}>
                         {user.group === 0 ? 'BQT' : `G${user.group}`}
+                        {user.group === topGroupNumber && <Flame size={8} className="animate-pulse text-orange-500" />}
                       </span>
                     </div>
                   </div>
@@ -1185,7 +1418,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                         </div>
                         <div>
                           <p className="font-bold text-gray-900 text-sm">{u?.representative || 'N/A'}</p>
-                          <p className="text-[10px] text-gray-500">Tuần {r.week.split('-')[1]} • {format(date, 'dd/MM HH:mm')}</p>
+                          <p className="text-[10px] text-gray-500">{formatWeekDisplay(r.week)} • {format(date, 'dd/MM HH:mm')}</p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1252,16 +1485,25 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
               <h3 className="text-lg font-black text-gray-900">Lịch sử báo cáo của tôi</h3>
               <p className="text-xs text-gray-500">Xem lại các chỉ tiêu bạn đã báo cáo trong tháng này</p>
             </div>
-            <button 
-              onClick={handleExportIndividualExcel}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
-            >
-              <Download size={16} />
-              Xuất Excel cá nhân
-            </button>
+            <div className="relative group z-40">
+              <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200">
+                <Download size={16} />
+                Xuất dữ liệu
+              </button>
+              <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                <button onClick={handleExportIndividualExcel} className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 text-sm font-medium text-gray-700 text-left">
+                  <FileText size={16} className="text-emerald-600" />
+                  Xuất Excel
+                </button>
+                <button onClick={handleExportImageIndividual} className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 text-sm font-medium text-gray-700 text-left border-t border-gray-100">
+                  <ImageIcon size={16} className="text-purple-600" />
+                  Xuất Hình Ảnh
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
+          <div id="leaderboard-individual-export" className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -1276,46 +1518,99 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                 <tbody className="divide-y divide-gray-50">
                   {reports
                     .filter(r => r.userId === auth.currentUser?.uid)
-                    .sort((a, b) => b.week.localeCompare(a.week))
+                    .sort((a, b) => (b.week || '').localeCompare(a.week || ''))
                     .map((report) => {
                       const reportDate = report.date?.toDate ? report.date.toDate() : new Date(report.date);
                       const isCurrentMonth = reportDate.getMonth() === new Date().getMonth() && reportDate.getFullYear() === new Date().getFullYear();
                       
+                      const peerReportsInWeek = reports.filter(r => r.userId !== report.userId && r.week === report.week);
+                      const confirmedMeetingPeers = peerReportsInWeek.filter(p => p.confirmations?.[report.userId] === 'confirmed');
+
+                      const totalNormalMeetings = (report.normalMeetings || 0) + confirmedMeetingPeers.filter(p => p.meetingParticipantIds?.includes(report.userId)).length;
+                      const totalJointHosting = (report.jointHosting || 0) + confirmedMeetingPeers.filter(p => p.hostingParticipantIds?.includes(report.userId)).length;
+                      const totalJointTrip = (report.jointTrip || 0) + confirmedMeetingPeers.filter(p => p.tripParticipantIds?.includes(report.userId)).length;
+                      const totalOfficeMeeting = (report.officeMeeting || 0) + confirmedMeetingPeers.filter(p => p.officeParticipantIds?.includes(report.userId)).length;
+
+                      const peersReceivingFromU = confirmedMeetingPeers.filter(p => p.receiverGiverId === report.userId && p.piggyAmount > 0);
+                      const peerGiverAmount = peersReceivingFromU.reduce((sum, p) => {
+                         const alreadySelfReported = (report.giverAmount > 0 && report.giverRecipientId === p.userId);
+                         return sum + (alreadySelfReported ? 0 : p.receiverAmount);
+                      }, 0);
+
+                      const peersGivingToU = confirmedMeetingPeers.filter(p => p.giverRecipientId === report.userId && p.giverAmount > 0);
+                      const peerReceiverAmount = peersGivingToU.reduce((sum, p) => {
+                         const alreadySelfReported = (report.piggyAmount > 0 && report.receiverGiverId === p.userId);
+                         return sum + (alreadySelfReported ? 0 : p.giverAmount);
+                      }, 0);
+
+                      const displayCho = (report.giverAmount || 0) + peerGiverAmount;
+                      const displayNhan = (report.receiverAmount || 0) + peerReceiverAmount;
+                      
+                      const w = calculateWeeklyBreakdown(report, reports, kpiSettings);
+
                       return (
                         <tr key={report.id} className={cn("hover:bg-gray-50/50 transition-colors", isCurrentMonth && "bg-blue-50/30")}>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
                               {isCurrentMonth && <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse"></div>}
                               <div>
-                                <p className="font-bold text-gray-900 text-sm">Tuần {report.week.split('-')[1]}</p>
+                                <p className="font-bold text-gray-900 text-sm">{formatWeekDisplay(report.week)}</p>
                                 <p className="text-[10px] text-gray-400">{format(reportDate, 'dd/MM/yyyy')}</p>
                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                            <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
                               <div className="flex items-center gap-1.5">
                                 <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                                <span className="text-[10px] text-gray-500 font-medium">Hiện diện: <span className="text-gray-900 font-bold">{report.presenceStatus === 'present' ? 'Có' : 'Vắng'}</span></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Hiện diện: <span className="text-gray-900 font-bold">
+                                  {report.presenceStatus === 'present' && isBeforeMeetingTime(report.week, kpiSettings) ? 'Sẽ tham gia' :
+                                   report.presenceStatus === 'present' ? 'Có mặt' : 
+                                   report.presenceStatus === 'registered_present' ? 'Sẽ tham gia' : 
+                                   report.presenceStatus === 'registered_excused' ? 'Xin vắng' : 
+                                   report.presenceStatus === 'excused' ? 'Phép' : 
+                                   report.presenceStatus === 'late' ? 'Muộn' : 'Vắng'} ({w.presencePoints}đ)
+                                </span></span>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                                <span className="text-[10px] text-gray-500 font-medium">Thông tin: <span className="text-gray-900 font-bold">{report.infoCount}</span></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Share FB: <span className="text-gray-900 font-bold">{report.fbShares || 0}</span></span>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                                <span className="text-[10px] text-gray-500 font-medium">Cơ hội: <span className="text-gray-900 font-bold">{report.oppCount}</span></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Thông tin: <span className="text-gray-900 font-bold">{report.infoCount || 0}</span> <span className="text-gray-400 font-normal italic">(Tối thiểu {kpiSettings.info.requiredCount} để được {kpiSettings.info.points}đ/tháng)</span></span>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                                <span className="text-[10px] text-gray-500 font-medium">Khách: <span className="text-gray-900 font-bold">{report.targetedGuests + report.nonTargetedGuests}</span></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Cơ hội (Trao/Nhận): <span className="text-gray-900 font-bold">{((report.internalOppCount || 0) + (report.externalOppCount || 0) + (report.oppCount || 0))}/{report.referralReceivers || 0} ({w.oppPoints}đ)</span></span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Khách (Đúng/Khác): <span className="text-gray-900 font-bold">{report.targetedGuests || 0}/{report.nonTargetedGuests || 0} ({w.guestPoints}đ)</span></span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Cafe 1-1: <span className="text-gray-900 font-bold">{w.totalNormalMeetings}</span></span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Tiếp khách chung: <span className="text-gray-900 font-bold">{w.totalJointHosting}</span></span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Công tác chung: <span className="text-gray-900 font-bold">{w.totalJointTrip}</span></span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                <span className="text-[10px] text-gray-500 font-medium">Văn phòng: <span className="text-gray-900 font-bold">{w.totalOfficeMeeting}</span> <span className="text-green-600 font-bold ml-1">=&gt; Tổng Gặp Gỡ: {w.meetingPoints}đ</span></span>
                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center">
                             <div className="space-y-0.5">
-                              <p className="text-[10px] font-bold text-green-600">Cho: {report.giverAmount.toLocaleString('vi-VN')}đ</p>
-                              <p className="text-[10px] font-bold text-blue-600">Nhận: {report.receiverAmount.toLocaleString('vi-VN')}đ</p>
+                              <p className="text-[10px] font-bold text-green-600">Cho: {displayCho.toLocaleString('vi-VN')}đ ({w.giverPoints}đ)</p>
+                              <p className="text-[10px] font-bold text-blue-600">Nhận: {displayNhan.toLocaleString('vi-VN')}đ</p>
+                              <p className="text-[10px] font-bold text-pink-600">Q.Heo: {(report.piggyAmount || 0).toLocaleString('vi-VN')}đ ({w.receiverPoints}đ)</p>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center">
@@ -1332,7 +1627,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <span className="text-lg font-black text-[#1e3a8a]">{report.total}</span>
+                            <span className="text-lg font-black text-[#1e3a8a]">{calculateMonthlyScore([report], reports, kpiSettings).total}</span>
                           </td>
                         </tr>
                       );
@@ -1375,7 +1670,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                 className="px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 max-w-[200px]"
               >
                 <option value="all">Tất cả thành viên</option>
-                {users.sort((a, b) => a.representative.localeCompare(b.representative)).map(u => (
+                {users.sort((a, b) => (a.representative || '').localeCompare(b.representative || '')).map(u => (
                   <option key={u.uid} value={u.uid}>{u.representative} ({u.companyName})</option>
                 ))}
               </select>
@@ -1409,7 +1704,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                       (reportFilterStatus === 'all' || r.status === reportFilterStatus) &&
                       (reportFilterUser === 'all' || r.userId === reportFilterUser)
                     )
-                    .sort((a, b) => b.week.localeCompare(a.week))
+                    .sort((a, b) => (b.week || '').localeCompare(a.week || ''))
                     .map((report) => {
                     const user = users.find(u => u.uid === report.userId);
                     const updateDate = report.updatedAt?.toDate ? report.updatedAt.toDate() : report.updatedAt ? new Date(report.updatedAt) : null;
@@ -1432,7 +1727,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                     return (
                       <tr key={report.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-6 py-4">
-                          <p className="font-bold text-gray-900 text-sm">Tuần {report.week.split('-')[1]}</p>
+                          <p className="font-bold text-gray-900 text-sm">{formatWeekDisplay(report.week)}</p>
                           <p className="text-[10px] text-gray-400">{report.week.split('-')[0]}</p>
                         </td>
                         <td className="px-6 py-4">
@@ -1472,7 +1767,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                           </div>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <span className="text-sm font-black text-blue-600">{report.total}đ</span>
+                          <span className="text-sm font-black text-blue-600">{calculateMonthlyScore([report], reports, kpiSettings).total}</span>
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex flex-col items-center gap-1">
@@ -1536,7 +1831,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                   (reportFilterStatus === 'all' || r.status === reportFilterStatus) &&
                   (reportFilterUser === 'all' || r.userId === reportFilterUser)
                 )
-                .sort((a, b) => b.week.localeCompare(a.week))
+                .sort((a, b) => (b.week || '').localeCompare(a.week || ''))
                 .map((report) => {
                   const user = users.find(u => u.uid === report.userId);
                   const updateDate = report.updatedAt?.toDate ? report.updatedAt.toDate() : report.updatedAt ? new Date(report.updatedAt) : null;
@@ -1559,7 +1854,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                     <div key={report.id} className="p-4 space-y-3">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="font-bold text-gray-900 text-sm">Tuần {report.week.split('-')[1]} ({report.week.split('-')[0]})</p>
+                          <p className="font-bold text-gray-900 text-sm">{formatWeekDisplay(report.week)} ({report.week.split('-')[0]})</p>
                           <p className="text-xs font-bold text-blue-600 mt-1">{user?.representative || 'N/A'}</p>
                           <p className="text-[10px] text-gray-500">{user?.companyName}</p>
                           <div className="flex flex-wrap gap-2 mt-1">
@@ -1596,7 +1891,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-xl font-black text-[#1e3a8a]">{report.total}đ</p>
+                          <p className="text-xl font-black text-[#1e3a8a]">{calculateMonthlyScore([report], reports, kpiSettings).total}</p>
                           <p className="text-[8px] font-bold text-gray-400 uppercase">Điểm</p>
                         </div>
                       </div>
@@ -1821,7 +2116,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
         <div className="space-y-1.5">
           <label className="text-xs font-bold text-gray-400 uppercase">Người tham dự ({meetingForm.attendees.length || 'Tất cả'})</label>
           <div className="max-h-[150px] overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
-            {users.sort((a, b) => a.representative.localeCompare(b.representative)).map(u => (
+            {users.sort((a, b) => (a.representative || '').localeCompare(b.representative || '')).map(u => (
               <label key={u.uid} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded transition-colors">
                 <input 
                   type="checkbox"
@@ -2160,6 +2455,92 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
             )}
           </AnimatePresence>
         </div>
+      ) : viewMode === 'leave_requests' ? (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50/50 border-b border-gray-100">
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Thành viên</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Loại</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Lý do</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Ngày vắng</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-center">Trạng thái</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {leaveRequests.sort((a, b) => {
+                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+                    return dateB.getTime() - dateA.getTime();
+                  }).map(req => {
+                    const member = users.find(u => u.uid === req.userId);
+                    return (
+                      <tr key={req.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <p className="font-bold text-gray-900 text-sm">{member?.representative}</p>
+                          <p className="text-[10px] text-gray-500">{member?.companyName}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
+                            req.type === 'weekly' ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-600"
+                          )}>
+                            {req.type === 'weekly' ? 'Vắng tuần' : 'Ngừng sinh hoạt (1 tháng)'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-gray-700 line-clamp-2 max-w-xs">{req.reason}</p>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-700 font-medium">
+                          {req.startDate ? format(new Date(req.startDate), 'dd/MM/yyyy') : 'N/A'}
+                          {req.type === 'long_term' && req.endDate && ` - ${format(new Date(req.endDate), 'dd/MM/yyyy')}`}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={cn(
+                            "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
+                            req.status === 'pending' ? "bg-amber-50 text-amber-600" :
+                            req.status === 'approved' ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-600"
+                          )}>
+                            {req.status === 'pending' ? 'Chờ duyệt' :
+                             req.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {isAdmin && req.status === 'pending' && (
+                            <div className="flex justify-end gap-2">
+                              <button 
+                                onClick={() => handleUpdateLeaveRequestStatus(req.id!, 'approved')}
+                                className="px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100"
+                              >
+                                Duyệt
+                              </button>
+                              <button 
+                                onClick={() => handleUpdateLeaveRequestStatus(req.id!, 'rejected')}
+                                className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200"
+                              >
+                                Từ chối
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            
+            {leaveRequests.length === 0 && (
+              <div className="text-center py-20">
+                <CalendarMinus size={48} className="mx-auto text-gray-200 mb-4" />
+                <p className="text-gray-400 font-medium">Chưa có đơn xin vắng nào.</p>
+              </div>
+            )}
+          </div>
+        </div>
       ) : viewMode === 'summary' ? (
         <div className="space-y-4">
           <div className="md:hidden flex items-center gap-2 text-[10px] text-blue-600 font-bold bg-blue-50 px-4 py-2 rounded-xl">
@@ -2207,6 +2588,12 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
       </div>
       ) : viewMode === 'settings' && isAdmin ? (
         <KPISettingsView currentSettings={kpiSettings} />
+      ) : viewMode === 'peer-review' && currentUser ? (
+        <PeerReviewTab currentUser={currentUser} reports={reports} users={users} />
+      ) : viewMode === 'qc-dashboard' && isAdmin ? (
+        <QCDashboard reports={reports} users={users} />
+      ) : viewMode === 'election' && isAdmin ? (
+        <ElectionAdminPanel users={users} onClose={() => setViewMode('leaderboard')} />
       ) : viewMode === 'memberDetail' ? (
         <div className="space-y-6">
           <button 
@@ -2259,11 +2646,11 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                   <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                     {reports
                       .filter(r => r.userId === selectedMemberId)
-                      .sort((a, b) => b.week.localeCompare(a.week))
+                      .sort((a, b) => (b.week || '').localeCompare(a.week || ''))
                       .map(r => (
                         <div key={r.id} className="p-4 bg-gray-50 rounded-2xl flex items-center justify-between">
                           <div>
-                            <p className="font-bold text-gray-900 text-sm">Tuần {r.week.split('-')[1]}</p>
+                            <p className="font-bold text-gray-900 text-sm">{formatWeekDisplay(r.week)}</p>
                             <p className="text-[10px] text-gray-400">{r.week.split('-')[0]}</p>
                           <div className="flex flex-wrap gap-2 mt-1">
                             {renderEvidenceLinks(r.evidence, 'Chung')}
@@ -2389,12 +2776,21 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                           Xem chi tiết
                         </button>
                         {isAdmin && (
-                          <button 
-                            onClick={() => setEditingUser(u)}
-                            className="text-blue-600 hover:text-blue-800 text-xs font-bold"
-                          >
-                            Chỉnh sửa
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => setEditingUser(u)}
+                              className="text-blue-600 hover:text-blue-800 text-xs font-bold"
+                            >
+                              Chỉnh sửa
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteUser(u.uid)}
+                              className="text-red-600 hover:text-red-800 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Xóa thành viên"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -2451,12 +2847,20 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                       Xem chi tiết
                     </button>
                     {isAdmin && (
-                      <button 
-                        onClick={() => setEditingUser(u)}
-                        className="px-4 py-2 bg-blue-600 text-white text-[10px] font-bold rounded-xl shadow-lg shadow-blue-100"
-                      >
-                        Chỉnh sửa
-                      </button>
+                      <>
+                        <button 
+                          onClick={() => setEditingUser(u)}
+                          className="px-4 py-2 bg-blue-600 text-white text-[10px] font-bold rounded-xl shadow-lg shadow-blue-100"
+                        >
+                          Chỉnh sửa
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteUser(u.uid)}
+                          className="px-4 py-2 bg-red-100 text-red-600 text-[10px] font-bold rounded-xl hover:bg-red-200"
+                        >
+                          Xóa
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -2514,7 +2918,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                         </select>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Vai trò</label>
+                        <label className="text-xs font-bold text-gray-400 uppercase">Vai trò (App)</label>
                         <select 
                           className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                           value={editingUser.role}
@@ -2522,6 +2926,25 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                         >
                           <option value="member">Member</option>
                           <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-gray-400 uppercase">Chức danh BĐH</label>
+                        <select 
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingUser.executiveRole || 'thanh_vien'}
+                          onChange={e => setEditingUser({...editingUser, executiveRole: e.target.value})}
+                        >
+                          <option value="thanh_vien">Thành viên</option>
+                          <option value="truong_hoi">Trưởng Hội</option>
+                          <option value="ban_noi_bo">Ban Nội Bộ</option>
+                          <option value="ban_ngoai_giao">Ban Ngoại Giao</option>
+                          <option value="ban_thu_ky">Ban Thư Ký</option>
+                          <option value="ban_dao_tao">Ban Đào Tạo</option>
+                          <option value="ban_the_thao">Ban Thể Thao</option>
+                          <option value="truong_nhom_1">Trưởng Nhóm 1</option>
+                          <option value="truong_nhom_2">Trưởng Nhóm 2</option>
+                          <option value="truong_nhom_3">Trưởng Nhóm 3</option>
                         </select>
                       </div>
                       <div className="space-y-1.5">
@@ -2626,6 +3049,7 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
                           <option value={1}>Nhóm 1</option>
                           <option value={2}>Nhóm 2</option>
                           <option value={3}>Nhóm 3</option>
+                          <option value={0}>Ban Quản Trị (Admin)</option>
                         </select>
                       </div>
 
@@ -2691,6 +3115,23 @@ export default function Leaderboard({ users, reports, meetings, guests, isAdmin,
              />
           </div>
         </div>
+      )}
+
+      {/* Data Management Modal */}
+      {showDataModal && (
+        <DataManagementModal 
+          users={users} 
+          reports={reports} 
+          onClose={() => setShowDataModal(false)} 
+          onRefresh={onReset} 
+        />
+      )}
+
+      {currentUser && (
+        <ElectionVotingModal 
+          currentUser={currentUser}
+          users={users}
+        />
       )}
     </div>
   );
